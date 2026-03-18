@@ -19,6 +19,7 @@ const packageOptions = [
 
 onMounted(() => {
   void store.loadStatus();
+  void store.loadProposalQueue();
 });
 </script>
 
@@ -30,8 +31,8 @@ onMounted(() => {
         <h1>Repository truth first. Codex handoffs second.</h1>
         <p class="hero__lede">
           This console stays narrow on purpose: inspect the current project truth,
-          check drift signals, and generate durable plan or execution packages
-          without inventing a second workflow system.
+          check drift signals, approve durable truth updates, and generate Codex
+          handoff packages without inventing a second workflow system.
         </p>
       </div>
 
@@ -58,6 +59,10 @@ onMounted(() => {
               <div>
                 <span class="metric-label">Review Checkpoints</span>
                 <strong>{{ store.status?.validation.reviews.length ?? 0 }}</strong>
+              </div>
+              <div>
+                <span class="metric-label">Proposal Sets</span>
+                <strong>{{ store.status?.validation.proposalSets.length ?? 0 }}</strong>
               </div>
             </div>
           </template>
@@ -255,11 +260,155 @@ onMounted(() => {
                     </div>
                     <p>{{ question.prompt }}</p>
                     <small>{{ question.default_recommendation }}</small>
+                    <label class="control control--wide">
+                      <span>Operator answer</span>
+                      <textarea
+                        :value="store.intakeAnswers[question.id] ?? ''"
+                        class="control__textarea"
+                        rows="3"
+                        placeholder="Answer only if this question materially affects the request."
+                        @input="
+                          store.setIntakeAnswer(
+                            question.id,
+                            ($event.target as HTMLTextAreaElement).value,
+                          )
+                        "
+                      />
+                    </label>
                   </article>
                 </div>
               </div>
+
+              <div class="panel-actions">
+                <Button
+                  label="Generate Intake Proposal Set"
+                  icon="pi pi-pencil"
+                  :loading="store.isGeneratingProposal"
+                  :disabled="store.hasUnansweredBlockingQuestions"
+                  @click="store.generateIntakeProposalSetFromAnalysis"
+                />
+                <small v-if="store.hasUnansweredBlockingQuestions">
+                  Blocking Material Questions still need answers before proposal generation.
+                </small>
+              </div>
             </div>
           </div>
+        </template>
+      </Card>
+    </section>
+
+    <Divider />
+
+    <section class="grid">
+      <Card class="panel">
+        <template #title>Proposal Queue</template>
+        <template #content>
+          <div class="panel-actions">
+            <Button
+              label="Refresh Proposals"
+              icon="pi pi-refresh"
+              :loading="store.isLoadingProposals"
+              @click="store.loadProposalQueue"
+            />
+            <Button
+              label="Generate Review Follow-up"
+              icon="pi pi-sparkles"
+              :loading="store.isGeneratingProposal"
+              @click="store.generateReviewProposalSetForSelectedTranche"
+            />
+          </div>
+
+          <div class="record-list">
+            <article
+              v-for="proposal in store.proposalSets"
+              :key="proposal.id"
+              class="record-card"
+            >
+              <div class="record-card__header">
+                <h3>{{ proposal.id }}</h3>
+                <Tag :value="proposal.record.status" />
+              </div>
+              <p>{{ proposal.record.source_type }}: {{ proposal.record.source_ref }}</p>
+              <small>{{ proposal.draft_count }} draft(s)</small>
+              <div class="panel-actions">
+                <Button
+                  label="Open"
+                  size="small"
+                  text
+                  @click="store.loadProposalSet(proposal.id)"
+                />
+              </div>
+            </article>
+            <article v-if="store.proposalSets.length === 0" class="record-card">
+              <h3>No proposal sets yet.</h3>
+              <p>Generate an intake or review proposal set to start approval-gated truth mutation.</p>
+            </article>
+          </div>
+        </template>
+      </Card>
+
+      <Card class="panel panel--overview">
+        <template #title>Proposal Detail</template>
+        <template #content>
+          <div v-if="store.selectedProposalSet" class="record-list">
+            <div class="package-output__meta">
+              <Tag :value="store.selectedProposalSet.record.status" />
+              <strong>{{ store.selectedProposalSet.record.id }}</strong>
+              <span>{{ store.selectedProposalSet.relativePath }}</span>
+            </div>
+
+            <div>
+              <h3>Summary</h3>
+              <p>{{ store.selectedProposalSet.summary }}</p>
+            </div>
+
+            <div>
+              <h3>Source Context</h3>
+              <pre>{{ store.selectedProposalSet.sourceContext }}</pre>
+            </div>
+
+            <div class="record-list">
+              <article
+                v-for="draft in store.selectedProposalSet.drafts"
+                :key="draft.id"
+                class="record-card"
+              >
+                <div class="record-card__header">
+                  <h3>{{ draft.id }}</h3>
+                  <Tag :value="draft.record.status" />
+                </div>
+                <p>{{ draft.summary }}</p>
+                <small>{{ draft.record.target_artifact }}</small>
+                <div>
+                  <h4>Source Context</h4>
+                  <pre>{{ draft.sourceContext }}</pre>
+                </div>
+                <div>
+                  <h4>Proposed Content</h4>
+                  <pre>{{ draft.proposedContent }}</pre>
+                </div>
+                <div class="panel-actions">
+                  <Button
+                    label="Approve"
+                    icon="pi pi-check"
+                    :loading="store.activeProposalMutationId === draft.id"
+                    :disabled="draft.record.status !== 'draft'"
+                    @click="store.mutateProposal(draft.id, 'approve')"
+                  />
+                  <Button
+                    label="Reject"
+                    icon="pi pi-times"
+                    severity="secondary"
+                    :loading="store.activeProposalMutationId === draft.id"
+                    :disabled="draft.record.status !== 'draft'"
+                    @click="store.mutateProposal(draft.id, 'reject')"
+                  />
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <p v-else>No proposal set selected.</p>
         </template>
       </Card>
     </section>
