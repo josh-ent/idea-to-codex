@@ -1,0 +1,396 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+
+import matter from "gray-matter";
+import type { ZodType } from "zod";
+
+import {
+  baselineTemplates,
+  decisionSections,
+  executionTemplateSections,
+  planTemplateSections,
+  reviewSections,
+  requiredDirectories,
+  requiredTopLevelFiles,
+  trancheSections,
+} from "./contracts.js";
+import {
+  extractBulletItems,
+  findMissingSections,
+  getSection,
+  parseAssumptions,
+  parseGlossary,
+} from "./markdown.js";
+import {
+  decisionFrontmatterSchema,
+  type DecisionFrontmatter,
+  handoffFrontmatterSchema,
+  type HandoffFrontmatter,
+  promptTemplateSchema,
+  type PromptTemplateFrontmatter,
+  reviewFrontmatterSchema,
+  type ReviewFrontmatter,
+  trancheFrontmatterSchema,
+  type TrancheFrontmatter,
+} from "./schemas.js";
+import { buildTraceLinks, type TraceLink } from "../traceability/links.js";
+
+export interface PresenceCheck {
+  path: string;
+  exists: boolean;
+}
+
+export interface ValidatedRecord<T> {
+  path: string;
+  frontmatter: T | null;
+  content: string;
+  errors: string[];
+}
+
+export interface RepositoryValidation {
+  rootFiles: PresenceCheck[];
+  directories: PresenceCheck[];
+  decisions: Array<ValidatedRecord<DecisionFrontmatter>>;
+  tranches: Array<ValidatedRecord<TrancheFrontmatter>>;
+  reviews: Array<ValidatedRecord<ReviewFrontmatter>>;
+  planPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
+  executionPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
+  planTemplate: ValidatedRecord<PromptTemplateFrontmatter>;
+  executionTemplate: ValidatedRecord<PromptTemplateFrontmatter>;
+  assumptions: ReturnType<typeof parseAssumptions>;
+  glossaryTerms: ReturnType<typeof parseGlossary>;
+  openQuestions: string[];
+  globalErrors: string[];
+  traceLinks: TraceLink[];
+}
+
+export async function bootstrapRepository(rootDir: string): Promise<string[]> {
+  const created: string[] = [];
+
+  for (const relativePath of requiredDirectories) {
+    const absolutePath = path.join(rootDir, relativePath);
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      await fs.mkdir(absolutePath, { recursive: true });
+      created.push(relativePath);
+    }
+  }
+
+  for (const template of baselineTemplates) {
+    const absolutePath = path.join(rootDir, template.path);
+
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, template.content, "utf8");
+      created.push(template.path);
+    }
+  }
+
+  return created;
+}
+
+export async function validateRepository(rootDir: string): Promise<RepositoryValidation> {
+  const rootFiles = await Promise.all(
+    requiredTopLevelFiles.map(async (relativePath) => ({
+      path: relativePath,
+      exists: await exists(path.join(rootDir, relativePath)),
+    })),
+  );
+
+  const directories = await Promise.all(
+    requiredDirectories.map(async (relativePath) => ({
+      path: relativePath,
+      exists: await exists(path.join(rootDir, relativePath)),
+    })),
+  );
+
+  const decisions = await loadRecordDirectory(
+    path.join(rootDir, "docs/decisions"),
+    decisionFrontmatterSchema,
+    decisionSections,
+  );
+
+  const tranches = await loadRecordDirectory(
+    path.join(rootDir, "docs/tranches"),
+    trancheFrontmatterSchema,
+    trancheSections,
+  );
+
+  const reviews = await loadRecordDirectory(
+    path.join(rootDir, "docs/reviews"),
+    reviewFrontmatterSchema,
+    reviewSections,
+  );
+
+  const planPackages = await loadHandoffDirectory(
+    path.join(rootDir, "handoffs/plan"),
+    "plan",
+    planTemplateSections,
+  );
+
+  const executionPackages = await loadHandoffDirectory(
+    path.join(rootDir, "handoffs/execution"),
+    "execution",
+    executionTemplateSections,
+  );
+
+  const planTemplate = await loadSingleRecord(
+    path.join(rootDir, "prompts/templates/plan-package.md"),
+    promptTemplateSchema.refine((value) => value.template_type === "plan", {
+      path: ["template_type"],
+      message: "template_type must be plan",
+    }),
+    planTemplateSections,
+  );
+
+  const executionTemplate = await loadSingleRecord(
+    path.join(rootDir, "prompts/templates/execution-package.md"),
+    promptTemplateSchema.refine((value) => value.template_type === "execution", {
+      path: ["template_type"],
+      message: "template_type must be execution",
+    }),
+    executionTemplateSections,
+  );
+
+  const assumptions = parseAssumptions(
+    await fs.readFile(path.join(rootDir, "ASSUMPTIONS.md"), "utf8"),
+  );
+  const glossaryTerms = parseGlossary(
+    await fs.readFile(path.join(rootDir, "GLOSSARY.md"), "utf8"),
+  );
+  const openQuestions = extractBulletItems(
+    await fs.readFile(path.join(rootDir, "PLAN.md"), "utf8"),
+    "18. Open Questions That Genuinely Need Answering",
+  );
+  const globalErrors = [
+    ...findDuplicateIds(
+      "decision",
+      decisions
+        .map((record) => record.frontmatter?.id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+    ...findDuplicateIds(
+      "tranche",
+      tranches
+        .map((record) => record.frontmatter?.id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+    ...findDuplicateIds(
+      "review",
+      reviews
+        .map((record) => record.frontmatter?.id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const traceLinks = buildTraceLinks({
+    decisions,
+    tranches,
+    reviews,
+    planPackages,
+    executionPackages,
+  });
+
+  return {
+    rootFiles,
+    directories,
+    decisions,
+    tranches,
+    reviews,
+    planPackages,
+    executionPackages,
+    planTemplate,
+    executionTemplate,
+    assumptions,
+    glossaryTerms,
+    openQuestions,
+    globalErrors,
+    traceLinks,
+  };
+}
+
+export async function loadTranche(
+  rootDir: string,
+  trancheId: string,
+): Promise<ValidatedRecord<TrancheFrontmatter>> {
+  const tranches = await loadRecordDirectory(
+    path.join(rootDir, "docs/tranches"),
+    trancheFrontmatterSchema,
+    trancheSections,
+  );
+  const tranche = tranches.find((record) => record.frontmatter?.id === trancheId);
+
+  if (!tranche) {
+    throw new Error(`Unknown tranche: ${trancheId}`);
+  }
+
+  if (tranche.errors.length > 0 || !tranche.frontmatter) {
+    throw new Error(`Tranche ${trancheId} is invalid`);
+  }
+
+  return tranche;
+}
+
+export async function loadDecisions(rootDir: string) {
+  return loadRecordDirectory(
+    path.join(rootDir, "docs/decisions"),
+    decisionFrontmatterSchema,
+    decisionSections,
+  );
+}
+
+export async function loadHandoffPackage(rootDir: string, relativePath: string) {
+  return loadSingleRecord(
+    path.join(rootDir, relativePath),
+    handoffFrontmatterSchema,
+    [],
+  );
+}
+
+export async function loadReviewRecords(rootDir: string) {
+  return loadRecordDirectory(
+    path.join(rootDir, "docs/reviews"),
+    reviewFrontmatterSchema,
+    reviewSections,
+  );
+}
+
+export function sectionContent(markdown: string, heading: string): string {
+  return getSection(markdown, heading);
+}
+
+export async function readText(rootDir: string, relativePath: string): Promise<string> {
+  return fs.readFile(path.join(rootDir, relativePath), "utf8");
+}
+
+export function collectValidationErrors(validation: RepositoryValidation): string[] {
+  const errors: string[] = [...validation.globalErrors];
+
+  for (const file of validation.rootFiles) {
+    if (!file.exists) {
+      errors.push(`missing file: ${file.path}`);
+    }
+  }
+
+  for (const directory of validation.directories) {
+    if (!directory.exists) {
+      errors.push(`missing directory: ${directory.path}`);
+    }
+  }
+
+  for (const record of [
+    ...validation.decisions,
+    ...validation.tranches,
+    ...validation.reviews,
+    ...validation.planPackages,
+    ...validation.executionPackages,
+    validation.planTemplate,
+    validation.executionTemplate,
+  ]) {
+    for (const error of record.errors) {
+      errors.push(`${record.path}: ${error}`);
+    }
+  }
+
+  return errors;
+}
+
+async function loadRecordDirectory<T>(
+  directoryPath: string,
+  schema: ZodType<T>,
+  requiredSections: readonly string[],
+): Promise<Array<ValidatedRecord<T>>> {
+  if (!(await exists(directoryPath))) {
+    return [];
+  }
+
+  const fileNames = (await fs.readdir(directoryPath))
+    .filter((fileName) => fileName.endsWith(".md"))
+    .filter((fileName) => fileName !== "TEMPLATE.md")
+    .sort();
+
+  return Promise.all(
+    fileNames.map((fileName) =>
+      loadSingleRecord(path.join(directoryPath, fileName), schema, requiredSections),
+    ),
+  );
+}
+
+async function loadHandoffDirectory(
+  directoryPath: string,
+  type: "plan" | "execution",
+  requiredSections: readonly string[],
+) {
+  return loadRecordDirectory(
+    directoryPath,
+    handoffFrontmatterSchema.refine((value) => value.type === type, {
+      path: ["type"],
+      message: `type must be ${type}`,
+    }),
+    requiredSections,
+  );
+}
+
+async function loadSingleRecord<T>(
+  filePath: string,
+  schema: ZodType<T>,
+  requiredSections: readonly string[],
+): Promise<ValidatedRecord<T>> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = matter(raw);
+    const frontmatterResult = schema.safeParse(parsed.data);
+    const errors = frontmatterResult.success
+      ? []
+      : frontmatterResult.error.issues.map((issue) => {
+          const issuePath = issue.path.join(".");
+          return issuePath ? `${issuePath}: ${issue.message}` : issue.message;
+        });
+
+    errors.push(
+      ...findMissingSections(parsed.content, requiredSections).map(
+        (section) => `missing section: ${section}`,
+      ),
+    );
+
+    return {
+      path: path.relative(process.cwd(), filePath),
+      frontmatter: frontmatterResult.success ? frontmatterResult.data : null,
+      content: parsed.content,
+      errors,
+    };
+  } catch (error) {
+    return {
+      path: path.relative(process.cwd(), filePath),
+      frontmatter: null,
+      content: "",
+      errors: [error instanceof Error ? error.message : "unknown error"],
+    };
+  }
+}
+
+async function exists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findDuplicateIds(kind: string, ids: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const id of ids) {
+    if (seen.has(id)) {
+      duplicates.add(id);
+    }
+    seen.add(id);
+  }
+
+  return [...duplicates].map((id) => `duplicate ${kind} id: ${id}`);
+}

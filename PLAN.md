@@ -40,10 +40,11 @@ The first release should prove one thin end-to-end governance loop, not build a 
 
 ## 3. Observations From The Current Repo State
 
-- The repo is a clean greenfield starting point with `PROJECT_AIMS.md` already present as the mission-level anchor.
-- This is good: low structural debt, no legacy persistence model, and freedom to establish the right contract first.
-- This is also incomplete: there is no formal documentation baseline yet for architecture, glossary, data dictionary, assumptions, risks, tranches, decisions, or handoff packages.
-- The plan should preserve the authority of `PROJECT_AIMS.md` and avoid creating duplicate “mission” documents that rephrase the same truth.
+- The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
+- This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
+- The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
+- The main remaining gap is approval-gated durable truth mutation from intake or review outcomes without weakening governance posture.
+- `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
 ## 4. Product Doctrine
 
@@ -101,6 +102,7 @@ If v1 cannot do that cleanly, the platform is not yet working.
 
 ### Record folders
 - `docs/decisions/`
+- `docs/reviews/`
 - `docs/tranches/`
 - `prompts/templates/`
 - `handoffs/plan/`
@@ -204,6 +206,26 @@ Material questions should carry:
 - `consequence_of_non_decision`
 - `affected_artifacts`
 - `status`
+
+### 7.7 Review checkpoint schema
+Each review record should carry at least:
+- `id`
+- `source_tranche`
+- `status` (`recorded|attention_required`)
+- `review_reason`
+- `generated_on`
+- `related_decisions`
+- `related_packages`
+- `drift_signals`
+
+Body sections:
+- Summary
+- Trigger
+- Package Coverage
+- Drift Signals
+- Findings
+- Recommended Actions
+- Durable Changes
 
 ## 8. Proposed Product Architecture
 
@@ -423,6 +445,9 @@ Deliver:
 Exit condition:
 - the repo contract is explicit enough that Codex handoff packages can be assembled deterministically.
 
+Status:
+- implemented in the current repo.
+
 ### Phase 2: file-backed core engine
 Build the core logic over the repo.
 
@@ -436,6 +461,9 @@ Deliver:
 
 Exit condition:
 - the system can read, validate, update, and assemble repo truth reliably.
+
+Status:
+- implemented for bootstrap, validation, trace links, package generation, and package persistence.
 
 ### Phase 3: operator console
 Build the minimal UI, but keep it operator-first.
@@ -451,6 +479,9 @@ Deliver:
 Exit condition:
 - a human can run the canonical loop without touching raw files directly for common operations.
 
+Status:
+- implemented for status inspection, tranche selection, package generation, intake inspection, and review checkpoint generation.
+
 ### Phase 4: selective intelligence
 Add narrowly scoped LLM-assisted governance features.
 
@@ -463,6 +494,9 @@ Deliver:
 
 Exit condition:
 - the system improves project truth quality without becoming bureaucratic.
+
+Status:
+- implemented for deterministic intake classification, Material Question generation, review checkpoint generation, and first-pass drift signals.
 
 ### Phase 5: hardening
 Deliver:
@@ -478,9 +512,15 @@ Defer:
 - heavy autonomous orchestration;
 - elaborate agent management UI.
 
+Status:
+- active next phase.
+
 ## 17. Recommended First Tranche
 
 Build one thin vertical slice that proves the complete governance loop.
+
+Status:
+- implemented through `TRANCHE-004`, including the first persisted review checkpoint path.
 
 ### Scope
 - baseline repo artefact creation;
@@ -515,7 +555,7 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 - The canonical loop works end-to-end.
 - Package assembly uses repo truth, not chat memory.
 - Drift between terms, decisions, assumptions, and packages is detectable.
-- The UI is sufficient for an operator to steer the loop cleanly.
+- The backend API and persisted artefacts are sufficient to support the operator console tranche cleanly.
 - No duplicate mission truth is introduced.
 
 ## 18. Open Questions That Genuinely Need Answering
@@ -526,9 +566,7 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 19. Immediate Next Actions
 
-1. Lock the artefact inventory and schema set.
-2. Write the initial file templates.
-3. Define the traceability link model.
-4. Define the package templates for `plan` and `execution`.
-5. Build the artefact parser / validator before investing in UI polish.
-6. Build only enough operator UI to run the canonical loop.
+1. Define the approval boundary for automated writes to meaning-bearing artefacts such as glossary, assumptions, tranche records, and decisions.
+2. Build `TRANCHE-005`: approval-gated durable truth updates from accepted intake or review outcomes.
+3. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
+4. Extend review quality only where it materially improves drift detection rather than adding paperwork.

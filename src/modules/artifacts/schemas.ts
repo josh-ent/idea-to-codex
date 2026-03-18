@@ -1,0 +1,82 @@
+import { z } from "zod";
+
+export const decisionFrontmatterSchema = z.object({
+  id: z.string().regex(/^DEC-\d{3}$/),
+  title: z.string().min(1),
+  status: z.enum(["proposed", "locked", "superseded", "rejected"]),
+  date: z.preprocess(
+    (value) =>
+      value instanceof Date ? value.toISOString().slice(0, 10) : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ),
+  owners: z.array(z.string().min(1)).min(1),
+  related_tranches: z.array(z.string().min(1)).default([]),
+  affected_artifacts: z.array(z.string().min(1)).min(1),
+  supersedes: z.preprocess(
+    (value) => (value === "" || value === null ? [] : value),
+    z.array(z.string().min(1)).default([]),
+  ),
+  tags: z.array(z.string().min(1)).default([]),
+});
+
+export const trancheFrontmatterSchema = z.object({
+  id: z.string().regex(/^TRANCHE-\d{3}$/),
+  title: z.string().min(1),
+  status: z.enum(["proposed", "approved", "in_progress", "complete", "superseded"]),
+  priority: z.enum(["high", "medium", "low"]),
+  goal: z.string().min(1),
+  depends_on: z.array(z.string().min(1)).default([]),
+  affected_artifacts: z.array(z.string().min(1)).min(1),
+  affected_modules: z.array(z.string().min(1)).min(1),
+  related_decisions: z.array(z.string().min(1)).default([]),
+  related_assumptions: z.array(z.string().min(1)).default([]),
+  related_terms: z.array(z.string().min(1)).default([]),
+  review_trigger: z.string().min(1),
+  acceptance_status: z.enum([
+    "not_started",
+    "in_progress",
+    "met",
+    "failed",
+    "pending",
+    "passed",
+  ]),
+});
+
+export const promptTemplateSchema = z.object({
+  template_type: z.enum(["plan", "execution"]),
+  required_sections: z.array(z.string().min(1)).min(1),
+  target_consumer: z.string().min(1),
+});
+
+export const handoffFrontmatterSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["plan", "execution"]),
+  status: z.enum(["draft", "approved", "superseded"]),
+  source_tranche: z.string().regex(/^TRANCHE-\d{3}$/),
+  related_decisions: z.array(z.string().min(1)).default([]),
+  related_assumptions: z.array(z.string().min(1)).default([]),
+  related_terms: z.array(z.string().min(1)).default([]),
+  constraints: z.array(z.string().min(1)).min(1),
+  validation_requirements: z.array(z.string().min(1)).min(1),
+});
+
+export const reviewFrontmatterSchema = z.object({
+  id: z.string().regex(/^REVIEW-TRANCHE-\d{3}$/),
+  source_tranche: z.string().regex(/^TRANCHE-\d{3}$/),
+  status: z.enum(["recorded", "attention_required"]),
+  review_reason: z.string().min(1),
+  generated_on: z.preprocess(
+    (value) =>
+      value instanceof Date ? value.toISOString().slice(0, 10) : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ),
+  related_decisions: z.array(z.string().min(1)).default([]),
+  related_packages: z.array(z.string().min(1)).default([]),
+  drift_signals: z.array(z.string().min(1)).default([]),
+});
+
+export type DecisionFrontmatter = z.infer<typeof decisionFrontmatterSchema>;
+export type TrancheFrontmatter = z.infer<typeof trancheFrontmatterSchema>;
+export type PromptTemplateFrontmatter = z.infer<typeof promptTemplateSchema>;
+export type HandoffFrontmatter = z.infer<typeof handoffFrontmatterSchema>;
+export type ReviewFrontmatter = z.infer<typeof reviewFrontmatterSchema>;

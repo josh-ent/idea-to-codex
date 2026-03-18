@@ -1,0 +1,25 @@
+{
+  "name": "idea-to-codex-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@primeuix/themes": "2.0.3",
+    "pinia": "3.0.4",
+    "primeicons": "7.0.0",
+    "primevue": "4.5.4",
+    "vue": "3.5.30"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.1",
+    "@vitejs/plugin-vue": "6.0.5",
+    "typescript": "^5.9.3",
+    "vite": "8.0.0",
+    "vue-tsc": "3.2.6"
+  }
+}
