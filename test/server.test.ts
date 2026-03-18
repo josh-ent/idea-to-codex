@@ -91,6 +91,83 @@ describe("server routes", () => {
     expect(nonStringResponse.body.material_questions[0]?.type).toBe("bounded_change");
   });
 
+  it("creates and loads proposal sets through the api", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const createResponse = await request(app).post("/api/proposals/intake").send({
+      request: "Tidy the current fixture output.",
+      answers: {},
+    });
+
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.body.record.source_type).toBe("intake");
+
+    const listResponse = await request(app).get("/api/proposals");
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body[0]?.id).toBe(createResponse.body.id);
+
+    const detailResponse = await request(app).get(`/api/proposals/${createResponse.body.id}`);
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.drafts.length).toBeGreaterThan(0);
+  });
+
+  it("rejects intake proposal generation when blocking answers are missing", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const response = await request(app).post("/api/proposals/intake").send({
+      request: "Rename the glossary term and change the backend architecture.",
+      answers: {},
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toContain("Unanswered blocking material questions");
+  });
+
+  it("approves and rejects proposal drafts through the api", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+    const createResponse = await request(app).post("/api/proposals/intake").send({
+      request: "Tidy the current fixture output.",
+      answers: {},
+    });
+    const backlogDraft = createResponse.body.drafts.find(
+      (draft: { record: { target_artifact: string } }) =>
+        draft.record.target_artifact === "BACKLOG.md",
+    );
+    const trancheDraft = createResponse.body.drafts.find(
+      (draft: { record: { target_artifact: string } }) =>
+        String(draft.record.target_artifact).startsWith("docs/tranches/"),
+    );
+
+    const approveResponse = await request(app).post(
+      `/api/proposals/${backlogDraft.id}/approve`,
+    );
+    const rejectResponse = await request(app).post(
+      `/api/proposals/${trancheDraft.id}/reject`,
+    );
+
+    expect(approveResponse.status).toBe(200);
+    expect(approveResponse.body.status).toBe("approved");
+    expect(rejectResponse.status).toBe(200);
+    expect(rejectResponse.body.status).toBe("rejected");
+  });
+
+  it("returns a 500 for unknown proposal ids", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const response = await request(app).post("/api/proposals/PROPOSAL-999-BACKLOG/approve");
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toContain("Unknown proposal draft");
+  });
+
   it("serves the built operator console for non-api routes", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);

@@ -117,4 +117,59 @@ describe("cli commands", () => {
     expect(result.code).not.toBe(0);
     expect(result.stderr).toContain("Unknown tranche: TRANCHE-999");
   });
+
+  it("prints JSON for intake proposal generation", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const result = await runCli(repo.rootDir, [
+      "proposal:intake",
+      "Tidy the current fixture output.",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"source_type": "intake"');
+    expect(result.stdout).toContain('"record"');
+  });
+
+  it("prints JSON for review proposal generation", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const result = await runCli(repo.rootDir, ["proposal:review", "TRANCHE-001"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"source_type": "review"');
+    expect(result.stdout).toContain('"drafts"');
+  });
+
+  it("approves and rejects proposals from the cli", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const createResult = await runCli(repo.rootDir, [
+      "proposal:intake",
+      "Tidy the current fixture output.",
+    ]);
+    const created = JSON.parse(createResult.stdout) as {
+      drafts: Array<{ id: string; record: { target_artifact: string } }>;
+    };
+    const backlogDraft = created.drafts.find(
+      (draft) => draft.record.target_artifact === "BACKLOG.md",
+    );
+    const trancheDraft = created.drafts.find((draft) =>
+      draft.record.target_artifact.startsWith("docs/tranches/"),
+    );
+
+    expect(backlogDraft).toBeDefined();
+    expect(trancheDraft).toBeDefined();
+
+    const approveResult = await runCli(repo.rootDir, ["proposal:approve", backlogDraft!.id]);
+    const rejectResult = await runCli(repo.rootDir, ["proposal:reject", trancheDraft!.id]);
+
+    expect(approveResult.code).toBe(0);
+    expect(approveResult.stdout).toContain('"status": "approved"');
+    expect(rejectResult.code).toBe(0);
+    expect(rejectResult.stdout).toContain('"status": "rejected"');
+  });
 });

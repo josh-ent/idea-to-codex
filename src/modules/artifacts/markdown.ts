@@ -1,9 +1,27 @@
 export function collectHeadings(markdown: string): string[] {
-  return markdown
-    .split("\n")
-    .map((line) => /^#{1,6}\s+(.+)$/.exec(line.trim()))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => match[1].trim());
+  const headings: string[] = [];
+  let insideFence = false;
+
+  for (const line of markdown.split("\n")) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      insideFence = !insideFence;
+      continue;
+    }
+
+    if (insideFence) {
+      continue;
+    }
+
+    const match = /^#{1,6}\s+(.+)$/.exec(trimmed);
+
+    if (match) {
+      headings.push(match[1].trim());
+    }
+  }
+
+  return headings;
 }
 
 export function findMissingSections(
@@ -18,9 +36,20 @@ export function getSection(markdown: string, heading: string): string {
   const lines = markdown.split("\n");
   const output: string[] = [];
   let inside = false;
+  let insideFence = false;
 
   for (const line of lines) {
-    const match = /^#{1,6}\s+(.+)$/.exec(line.trim());
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      if (inside) {
+        output.push(line);
+      }
+      insideFence = !insideFence;
+      continue;
+    }
+
+    const match = insideFence ? null : /^#{1,6}\s+(.+)$/.exec(trimmed);
 
     if (match) {
       if (inside) {
@@ -97,4 +126,9 @@ export function parseGlossary(markdown: string): ParsedGlossaryTerm[] {
       };
     })
     .filter((item): item is ParsedGlossaryTerm => item !== null);
+}
+
+export function extractMarkdownCodeFence(markdown: string): string {
+  const match = /^```(?:\w+)?\n([\s\S]*?)\n```$/m.exec(markdown.trim());
+  return match ? match[1] : markdown.trim();
 }

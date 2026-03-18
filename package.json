@@ -16,6 +16,10 @@
     "package:plan": "tsx src/cli.ts package plan",
     "package:execution": "tsx src/cli.ts package execution",
     "review": "tsx src/cli.ts review",
+    "proposal:intake": "tsx src/cli.ts proposal:intake",
+    "proposal:review": "tsx src/cli.ts proposal:review",
+    "proposal:approve": "tsx src/cli.ts proposal:approve",
+    "proposal:reject": "tsx src/cli.ts proposal:reject",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

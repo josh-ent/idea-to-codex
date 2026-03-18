@@ -1,21 +1,25 @@
 import type {
   DecisionFrontmatter,
   HandoffFrontmatter,
+  ProposalDraftFrontmatter,
+  ProposalSetFrontmatter,
   ReviewFrontmatter,
   TrancheFrontmatter,
 } from "../artifacts/schemas.js";
 import type { ValidatedRecord } from "../artifacts/repository.js";
 
 export interface TraceLink {
-  fromType: "decision" | "tranche" | "review";
+  fromType: "decision" | "intake" | "proposal" | "review" | "tranche";
   fromId: string;
-  toType: "artifact" | "tranche" | "decision" | "package" | "review";
+  toType: "artifact" | "decision" | "package" | "proposal" | "review" | "tranche";
   toId: string;
   reason: string;
 }
 
 export function buildTraceLinks(input: {
   decisions: Array<ValidatedRecord<DecisionFrontmatter>>;
+  proposalSets: Array<ValidatedRecord<ProposalSetFrontmatter>>;
+  proposalDrafts: Array<ValidatedRecord<ProposalDraftFrontmatter>>;
   tranches: Array<ValidatedRecord<TrancheFrontmatter>>;
   reviews: Array<ValidatedRecord<ReviewFrontmatter>>;
   planPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
@@ -109,6 +113,44 @@ export function buildTraceLinks(input: {
         toType: "package",
         toId: packageId,
         reason: "review assessed package coverage",
+      });
+    }
+  }
+
+  for (const proposalSet of input.proposalSets) {
+    if (!proposalSet.frontmatter || proposalSet.errors.length > 0) {
+      continue;
+    }
+
+    links.push({
+      fromType: proposalSet.frontmatter.source_type === "review" ? "review" : "intake",
+      fromId: proposalSet.frontmatter.source_ref,
+      toType: "proposal",
+      toId: proposalSet.frontmatter.id,
+      reason: "source produced proposal set",
+    });
+  }
+
+  for (const proposalDraft of input.proposalDrafts) {
+    if (!proposalDraft.frontmatter || proposalDraft.errors.length > 0) {
+      continue;
+    }
+
+    links.push({
+      fromType: "proposal",
+      fromId: proposalDraft.frontmatter.proposal_set_id,
+      toType: "proposal",
+      toId: proposalDraft.frontmatter.id,
+      reason: "proposal set contains draft",
+    });
+
+    if (proposalDraft.frontmatter.status === "approved") {
+      links.push({
+        fromType: "proposal",
+        fromId: proposalDraft.frontmatter.id,
+        toType: "artifact",
+        toId: proposalDraft.frontmatter.target_artifact,
+        reason: "approved proposal wrote target artifact",
       });
     }
   }

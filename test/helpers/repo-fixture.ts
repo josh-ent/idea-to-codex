@@ -25,6 +25,7 @@ export interface SeedRepositoryOptions {
   glossaryTerms?: Array<{ term: string; definition: string; notes?: string }>;
   planContent?: string;
   planPackages?: RepoFile[];
+  proposals?: RepoFile[];
   reviews?: RepoFile[];
   tranches?: RepoFile[];
 }
@@ -127,6 +128,10 @@ export async function seedValidRepository(
   }
 
   for (const file of options?.executionPackages ?? []) {
+    await repo.write(file.path, file.content);
+  }
+
+  for (const file of options?.proposals ?? []) {
     await repo.write(file.path, file.content);
   }
 }
@@ -364,6 +369,76 @@ export function buildHandoffRecord(input?: {
         "validation_requirements",
         input?.validationRequirements ?? ["Run repository validation."],
       ),
+    ],
+    omitSections: input?.omitSections ?? [],
+    sections,
+  });
+}
+
+export function buildProposalSetRecord(input?: {
+  generatedOn?: string;
+  id?: string;
+  omitSections?: string[];
+  sourceRef?: string;
+  sourceType?: string;
+  status?: string;
+  summary?: string;
+}): string {
+  const sections = [
+    section("Summary", input?.summary ?? "Fixture proposal set summary."),
+    section("Source Context", "- Fixture proposal source."),
+    section("Drafts", "- PROPOSAL-001-BACKLOG: BACKLOG.md"),
+  ];
+
+  return buildRecord({
+    frontmatter: [
+      `id: ${input?.id ?? "PROPOSAL-001"}`,
+      `status: ${input?.status ?? "draft"}`,
+      `source_type: ${input?.sourceType ?? "intake"}`,
+      `source_ref: ${input?.sourceRef ?? "INTAKE-PROPOSAL-001"}`,
+      `generated_on: ${input?.generatedOn ?? "2026-03-18"}`,
+    ],
+    omitSections: input?.omitSections ?? [],
+    sections,
+  });
+}
+
+export function buildProposalDraftRecord(input?: {
+  generatedOn?: string;
+  id?: string;
+  omitSections?: string[];
+  proposalSetId?: string;
+  sourceRef?: string;
+  sourceType?: string;
+  status?: string;
+  summary?: string;
+  targetArtifact?: string;
+  targetKind?: string;
+  proposedContent?: string;
+}): string {
+  const sections = [
+    section("Summary", input?.summary ?? "Fixture proposal draft summary."),
+    section("Source Context", "- Fixture proposal source."),
+    section(
+      "Proposed Content",
+      [
+        "```md",
+        input?.proposedContent ?? "# Fixture\n\nProposed replacement content.\n",
+        "```",
+      ].join("\n"),
+    ),
+  ];
+
+  return buildRecord({
+    frontmatter: [
+      `id: ${input?.id ?? "PROPOSAL-001-BACKLOG"}`,
+      `proposal_set_id: ${input?.proposalSetId ?? "PROPOSAL-001"}`,
+      `status: ${input?.status ?? "draft"}`,
+      `source_type: ${input?.sourceType ?? "intake"}`,
+      `source_ref: ${input?.sourceRef ?? "INTAKE-PROPOSAL-001"}`,
+      `target_artifact: ${input?.targetArtifact ?? "BACKLOG.md"}`,
+      `target_kind: ${input?.targetKind ?? "top_level"}`,
+      `generated_on: ${input?.generatedOn ?? "2026-03-18"}`,
     ],
     omitSections: input?.omitSections ?? [],
     sections,

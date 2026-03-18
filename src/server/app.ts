@@ -10,6 +10,14 @@ import {
 import { generateReview } from "../modules/governance/review.js";
 import { analyzeRequest } from "../modules/intake/service.js";
 import { generatePackage } from "../modules/packaging/service.js";
+import {
+  approveProposalDraft,
+  generateIntakeProposalSet,
+  generateReviewProposalSet,
+  getProposalSet,
+  listProposalSets,
+  rejectProposalDraft,
+} from "../modules/proposals/service.js";
 
 export function createApp(rootDir: string) {
   const app = express();
@@ -90,6 +98,67 @@ export function createApp(rootDir: string) {
         typeof request.body?.request === "string" ? request.body.request : "";
 
       response.status(200).json(analyzeRequest(requestText));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/proposals", async (_request, response, next) => {
+    try {
+      response.status(200).json(await listProposalSets(rootDir));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/proposals/:proposalSetId", async (request, response, next) => {
+    try {
+      response.status(200).json(await getProposalSet(rootDir, request.params.proposalSetId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proposals/intake", async (request, response, next) => {
+    try {
+      const requestText =
+        typeof request.body?.request === "string" ? request.body.request : "";
+      const answers =
+        request.body?.answers && typeof request.body.answers === "object"
+          ? Object.fromEntries(
+              Object.entries(request.body.answers).filter(
+                ([key, value]) => typeof key === "string" && typeof value === "string",
+              ),
+            )
+          : {};
+
+      response.status(201).json(
+        await generateIntakeProposalSet(rootDir, requestText, answers as Record<string, string>),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proposals/review/:trancheId", async (request, response, next) => {
+    try {
+      response.status(201).json(await generateReviewProposalSet(rootDir, request.params.trancheId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proposals/:proposalId/approve", async (request, response, next) => {
+    try {
+      response.status(200).json(await approveProposalDraft(rootDir, request.params.proposalId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/proposals/:proposalId/reject", async (request, response, next) => {
+    try {
+      response.status(200).json(await rejectProposalDraft(rootDir, request.params.proposalId));
     } catch (error) {
       next(error);
     }

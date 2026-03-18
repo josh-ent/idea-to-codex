@@ -75,8 +75,37 @@ export const reviewFrontmatterSchema = z.object({
   drift_signals: z.array(z.string().min(1)).default([]),
 });
 
+export const proposalSetFrontmatterSchema = z.object({
+  id: z.string().regex(/^PROPOSAL-\d{3}$/),
+  status: z.enum(["draft", "partially_approved", "approved", "rejected", "superseded"]),
+  source_type: z.enum(["intake", "review"]),
+  source_ref: z.string().min(1),
+  generated_on: z.preprocess(
+    (value) =>
+      value instanceof Date ? value.toISOString().slice(0, 10) : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ),
+});
+
+export const proposalDraftFrontmatterSchema = z.object({
+  id: z.string().regex(/^PROPOSAL-\d{3}(?:-[A-Z0-9]+)+$/),
+  proposal_set_id: z.string().regex(/^PROPOSAL-\d{3}$/),
+  status: z.enum(["draft", "approved", "rejected", "superseded"]),
+  source_type: z.enum(["intake", "review"]),
+  source_ref: z.string().min(1),
+  target_artifact: z.string().min(1),
+  target_kind: z.enum(["top_level", "record"]),
+  generated_on: z.preprocess(
+    (value) =>
+      value instanceof Date ? value.toISOString().slice(0, 10) : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ),
+});
+
 export type DecisionFrontmatter = z.infer<typeof decisionFrontmatterSchema>;
 export type TrancheFrontmatter = z.infer<typeof trancheFrontmatterSchema>;
 export type PromptTemplateFrontmatter = z.infer<typeof promptTemplateSchema>;
 export type HandoffFrontmatter = z.infer<typeof handoffFrontmatterSchema>;
 export type ReviewFrontmatter = z.infer<typeof reviewFrontmatterSchema>;
+export type ProposalSetFrontmatter = z.infer<typeof proposalSetFrontmatterSchema>;
+export type ProposalDraftFrontmatter = z.infer<typeof proposalDraftFrontmatterSchema>;

@@ -8,6 +8,8 @@ import {
 import {
   buildDecisionRecord,
   buildHandoffRecord,
+  buildProposalDraftRecord,
+  buildProposalSetRecord,
   buildReviewRecord,
   buildTrancheRecord,
   buildPlanMd,
@@ -106,6 +108,42 @@ describe("repository validation", () => {
     expect(validation.reviews[0]?.errors.some((error) => error.includes("status"))).toBe(true);
   });
 
+  it("reports invalid proposal set front matter", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ status: "broken" }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.proposalSets[0]?.errors.some((error) => error.includes("status"))).toBe(true);
+  });
+
+  it("reports invalid proposal draft front matter", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord(),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({ targetKind: "invalid" }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.proposalDrafts[0]?.errors.some((error) => error.includes("target_kind"))).toBe(true);
+  });
+
   it("reports duplicate decision ids", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {
@@ -166,6 +204,53 @@ describe("repository validation", () => {
     expect(errors).toContain("duplicate review id: REVIEW-TRANCHE-001");
   });
 
+  it("reports duplicate proposal set ids", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-001" }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-002/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-001" }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain("duplicate proposal set id: PROPOSAL-001");
+  });
+
+  it("reports duplicate proposal draft ids", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-001" }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({ id: "PROPOSAL-001-BACKLOG" }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/assumptions.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-BACKLOG",
+            targetArtifact: "ASSUMPTIONS.md",
+          }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain("duplicate proposal draft id: PROPOSAL-001-BACKLOG");
+  });
+
   it("reports missing required markdown sections", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {
@@ -182,6 +267,26 @@ describe("repository validation", () => {
     expect(validation.decisions[0]?.errors).toContain("missing section: Consequences");
   });
 
+  it("reports missing proposal draft sections", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord(),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({ omitSections: ["Proposed Content"] }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.proposalDrafts[0]?.errors).toContain("missing section: Proposed Content");
+  });
+
   it("reports wrong handoff type in the plan directory", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {
@@ -196,6 +301,24 @@ describe("repository validation", () => {
     const validation = await validateRepository(repo.rootDir);
 
     expect(validation.planPackages[0]?.errors.some((error) => error.includes("type"))).toBe(true);
+  });
+
+  it("reports wrong handoff type in the execution directory", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      executionPackages: [
+        {
+          path: "handoffs/execution/tranche-001-execution.md",
+          content: buildHandoffRecord({ type: "plan" }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.executionPackages[0]?.errors.some((error) => error.includes("type"))).toBe(
+      true,
+    );
   });
 
   it("treats a plan without the open-question heading as an empty list", async () => {

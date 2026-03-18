@@ -9,6 +9,8 @@ import {
   decisionSections,
   executionTemplateSections,
   planTemplateSections,
+  proposalDraftSections,
+  proposalSetSections,
   reviewSections,
   requiredDirectories,
   requiredTopLevelFiles,
@@ -28,6 +30,10 @@ import {
   type HandoffFrontmatter,
   promptTemplateSchema,
   type PromptTemplateFrontmatter,
+  proposalDraftFrontmatterSchema,
+  type ProposalDraftFrontmatter,
+  proposalSetFrontmatterSchema,
+  type ProposalSetFrontmatter,
   reviewFrontmatterSchema,
   type ReviewFrontmatter,
   trancheFrontmatterSchema,
@@ -51,6 +57,8 @@ export interface RepositoryValidation {
   rootFiles: PresenceCheck[];
   directories: PresenceCheck[];
   decisions: Array<ValidatedRecord<DecisionFrontmatter>>;
+  proposalSets: Array<ValidatedRecord<ProposalSetFrontmatter>>;
+  proposalDrafts: Array<ValidatedRecord<ProposalDraftFrontmatter>>;
   tranches: Array<ValidatedRecord<TrancheFrontmatter>>;
   reviews: Array<ValidatedRecord<ReviewFrontmatter>>;
   planPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
@@ -113,6 +121,9 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
     decisionFrontmatterSchema,
     decisionSections,
   );
+
+  const proposalSets = await loadProposalSetRecords(rootDir);
+  const proposalDrafts = await loadProposalDraftRecords(rootDir);
 
   const tranches = await loadRecordDirectory(
     path.join(rootDir, "docs/tranches"),
@@ -185,9 +196,23 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
         .map((record) => record.frontmatter?.id)
         .filter((value): value is string => Boolean(value)),
     ),
+    ...findDuplicateIds(
+      "proposal set",
+      proposalSets
+        .map((record) => record.frontmatter?.id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+    ...findDuplicateIds(
+      "proposal draft",
+      proposalDrafts
+        .map((record) => record.frontmatter?.id)
+        .filter((value): value is string => Boolean(value)),
+    ),
   ];
   const traceLinks = buildTraceLinks({
     decisions,
+    proposalSets,
+    proposalDrafts,
     tranches,
     reviews,
     planPackages,
@@ -198,6 +223,8 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
     rootFiles,
     directories,
     decisions,
+    proposalSets,
+    proposalDrafts,
     tranches,
     reviews,
     planPackages,
@@ -258,6 +285,57 @@ export async function loadReviewRecords(rootDir: string) {
   );
 }
 
+export async function loadProposalSetRecords(rootDir: string) {
+  const proposalsRoot = path.join(rootDir, "docs/proposals");
+
+  if (!(await exists(proposalsRoot))) {
+    return [];
+  }
+
+  const directoryNames = await loadProposalDirectories(proposalsRoot);
+
+  return Promise.all(
+    directoryNames.map((directoryName) =>
+      loadSingleRecord(
+        path.join(proposalsRoot, directoryName, "SET.md"),
+        proposalSetFrontmatterSchema,
+        proposalSetSections,
+      ),
+    ),
+  );
+}
+
+export async function loadProposalDraftRecords(rootDir: string) {
+  const proposalsRoot = path.join(rootDir, "docs/proposals");
+
+  if (!(await exists(proposalsRoot))) {
+    return [];
+  }
+
+  const directoryNames = await loadProposalDirectories(proposalsRoot);
+  const output: Array<ValidatedRecord<ProposalDraftFrontmatter>> = [];
+
+  for (const directoryName of directoryNames) {
+    const proposalDir = path.join(proposalsRoot, directoryName);
+    const fileNames = (await fs.readdir(proposalDir))
+      .filter((fileName) => fileName.endsWith(".md"))
+      .filter((fileName) => fileName !== "SET.md")
+      .sort();
+
+    for (const fileName of fileNames) {
+      output.push(
+        await loadSingleRecord(
+          path.join(proposalDir, fileName),
+          proposalDraftFrontmatterSchema,
+          proposalDraftSections,
+        ),
+      );
+    }
+  }
+
+  return output;
+}
+
 export function sectionContent(markdown: string, heading: string): string {
   return getSection(markdown, heading);
 }
@@ -283,6 +361,8 @@ export function collectValidationErrors(validation: RepositoryValidation): strin
 
   for (const record of [
     ...validation.decisions,
+    ...validation.proposalSets,
+    ...validation.proposalDrafts,
     ...validation.tranches,
     ...validation.reviews,
     ...validation.planPackages,
@@ -379,6 +459,13 @@ async function exists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function loadProposalDirectories(proposalsRoot: string): Promise<string[]> {
+  return (await fs.readdir(proposalsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
 }
 
 function findDuplicateIds(kind: string, ids: string[]): string[] {

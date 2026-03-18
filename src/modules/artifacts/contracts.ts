@@ -12,6 +12,7 @@ export const requiredTopLevelFiles = [
 
 export const requiredDirectories = [
   "docs/decisions",
+  "docs/proposals",
   "docs/reviews",
   "docs/tranches",
   "prompts/templates",
@@ -44,6 +45,18 @@ export const reviewSections = [
   "Findings",
   "Recommended Actions",
   "Durable Changes",
+] as const;
+
+export const proposalSetSections = [
+  "Summary",
+  "Source Context",
+  "Drafts",
+] as const;
+
+export const proposalDraftSections = [
+  "Summary",
+  "Source Context",
+  "Proposed Content",
 ] as const;
 
 export const planTemplateSections = [
