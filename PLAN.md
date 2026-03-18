@@ -43,7 +43,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
 - The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
-- The main remaining gap is approval-gated durable truth mutation from intake or review outcomes without weakening governance posture.
+- The next meaningful gap is workflow critique tied to named users, workflows, and constraints, plus stronger cross-record validation over the new proposal layer.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
 ## 4. Product Doctrine
@@ -102,6 +102,7 @@ If v1 cannot do that cleanly, the platform is not yet working.
 
 ### Record folders
 - `docs/decisions/`
+- `docs/proposals/`
 - `docs/reviews/`
 - `docs/tranches/`
 - `prompts/templates/`
@@ -256,6 +257,8 @@ The minimum core entities are:
 - Tranche
 - Review Checkpoint
 - Handoff Package
+- Proposal Set
+- Proposal Draft
 - Trace Link
 
 ### Missing concept added deliberately: Trace Link
@@ -513,14 +516,14 @@ Defer:
 - elaborate agent management UI.
 
 Status:
-- active next phase.
+- implemented for proposal-era approval gating; remaining work is validation hardening, workflow critique support, and package quality refinement.
 
 ## 17. Recommended First Tranche
 
 Build one thin vertical slice that proves the complete governance loop.
 
 Status:
-- implemented through `TRANCHE-004`, including the first persisted review checkpoint path.
+- implemented through `TRANCHE-005`, including approval-gated durable truth mutation from intake and review outputs.
 
 ### Scope
 - baseline repo artefact creation;
@@ -548,6 +551,7 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 - Markdown plus YAML front matter;
 - single repo / single project only;
 - human approval before durable writes that alter meaning or locked decisions;
+- proposal drafts persist before approval; target artefacts mutate only after per-draft approval;
 - manual export or copy into Codex is acceptable initially;
 - operator console over raw file editing, not a polished end-user app.
 
@@ -560,13 +564,12 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 18. Open Questions That Genuinely Need Answering
 
-- How much automated artefact rewriting is acceptable before explicit human approval is required.
 - Whether the default review cadence should remain “per tranche or after five durable artefact mutations”.
 - Whether v1 should stop at strong package export or also invoke Codex directly once the repo contract is stable.
 
 ## 19. Immediate Next Actions
 
-1. Define the approval boundary for automated writes to meaning-bearing artefacts such as glossary, assumptions, tranche records, and decisions.
-2. Build `TRANCHE-005`: approval-gated durable truth updates from accepted intake or review outcomes.
+1. Build `TRANCHE-006`: workflow critique support tied to named users, workflows, goals, and constraints.
+2. Strengthen cross-record validation so proposal approval cannot silently increase glossary or decision drift.
 3. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
 4. Extend review quality only where it materially improves drift detection rather than adding paperwork.

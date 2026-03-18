@@ -12,6 +12,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - expose a Node backend and Vue.js operator console over that contract;
 - analyze vague requests into bounded intake outputs;
 - persist review checkpoints and surface drift signals.
+- persist approval-gated proposal drafts for meaning-bearing artefacts and apply them only after explicit operator approval.
 
 ## Core principles
 
@@ -27,6 +28,10 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run package:plan -- <TRANCHE_ID>` generates a plan package snapshot.
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
 - `npm run review -- <TRANCHE_ID>` generates a persisted review checkpoint.
+- `npm run proposal:intake -- "<request>"` generates a persisted proposal set from intake analysis.
+- `npm run proposal:review -- <TRANCHE_ID>` generates a persisted proposal set from review findings.
+- `npm run proposal:approve -- <PROPOSAL_ID>` approves one proposal draft and writes its target artefact.
+- `npm run proposal:reject -- <PROPOSAL_ID>` rejects one proposal draft without mutating its target artefact.
 - `npm run dev` starts the backend server.
 - `npm run dev:web` starts the Vue.js operator console in development.
 - `npm run test` runs the automated tests.

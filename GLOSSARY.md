@@ -89,3 +89,21 @@
 - Disallowed or deprecated synonyms: `chat prompt`, `generic clarification`
 - Related entities: `Tranche`, `Decision Record`, `Operator Console`
 - Notes / usage constraints: Routine reversible implementation choices do not become Material Questions.
+
+## Proposal Set
+
+- Canonical name: `Proposal Set`
+- Allowed aliases: `proposal set`
+- Definition: A grouped, durable set of proposal drafts produced from one intake or review event.
+- Disallowed or deprecated synonyms: `batch patch`, `draft bundle`
+- Related entities: `Proposal Draft`, `Material Question`, `Review Checkpoint`
+- Notes / usage constraints: Approval is per draft, not per set.
+
+## Proposal Draft
+
+- Canonical name: `Proposal Draft`
+- Allowed aliases: `proposal`, `draft`
+- Definition: An approval-gated full-content replacement for one target artefact.
+- Disallowed or deprecated synonyms: `auto edit`, `patch hunk`
+- Related entities: `Proposal Set`, `Artefact`
+- Notes / usage constraints: The proposed content is durable, but the target artefact is not mutated until the operator approves the draft.
