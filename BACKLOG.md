@@ -2,7 +2,7 @@
 
 ## Active tranches
 
-- None.
+- `TRANCHE-006`: Workflow critique support tied to named Actors, workflows, goals, and constraints.
 
 ## Completed tranches
 
@@ -14,7 +14,6 @@
 
 ## Next candidate tranches
 
-- `TRANCHE-006`: Workflow critique support tied to named users, workflows, and constraints.
 - `TRANCHE-007`: Stronger cross-record validation and package quality checks over proposal-era repo truth.
 
 ## Deferred

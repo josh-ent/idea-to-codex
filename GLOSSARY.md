@@ -81,13 +81,22 @@
 - Related entities: `Tranche`, `Handoff Package`
 - Notes / usage constraints: The console depends on backend truth; it does not replace it.
 
+## Actor
+
+- Canonical name: `Actor`
+- Allowed aliases: `workflow actor`, `role`
+- Definition: The external person or system role whose goal-driven interaction with the system-under-specification is being described or critiqued.
+- Disallowed or deprecated synonyms: `user` when it could be confused with the single operator using this platform
+- Related entities: `Material Question`, `Operator Console`, `Tranche`
+- Notes / usage constraints: Use `Actor` for workflow critique and product-specification context. Do not use it to describe collaborators inside this repository-backed platform unless the platform itself is the product being specified.
+
 ## Material Question
 
 - Canonical name: `Material Question`
 - Allowed aliases: `question`
 - Definition: A question raised only when the answer affects product meaning, workflow semantics, architecture direction, governance posture, terminology, or another expensive-to-reverse choice.
 - Disallowed or deprecated synonyms: `chat prompt`, `generic clarification`
-- Related entities: `Tranche`, `Decision Record`, `Operator Console`
+- Related entities: `Actor`, `Tranche`, `Decision Record`, `Operator Console`
 - Notes / usage constraints: Routine reversible implementation choices do not become Material Questions.
 
 ## Proposal Set

@@ -142,7 +142,7 @@ The platform must ask questions selectively and with intent.
 
 It should ask when:
 - product meaning is ambiguous;
-- user workflow semantics are unclear;
+- workflow semantics for the intended Actor are unclear;
 - terminology is undefined or drifting;
 - a decision is expensive to reverse;
 - architecture direction materially changes;
@@ -205,17 +205,17 @@ Review loops may include:
 - risk review.
 
 ### 6. UX / WORKFLOW CRITIQUE
-If the product being specified includes user interfaces or operational workflows, the platform must explicitly challenge whether the design serves real user goals.
+If the product being specified includes user interfaces or operational workflows, the platform must explicitly challenge whether the design serves real Actor goals.
 
 Questions of this class include:
-- Does this actually serve the user?
+- Does this actually serve the intended Actor?
 - Does this workflow minimise friction for the stated task?
-- Are we forcing the user to think in system terms rather than task terms?
+- Are we forcing the Actor to think in system terms rather than task terms?
 - Is there unnecessary ceremony, duplication, or navigation depth?
 - Are edge cases defined and visible?
-- Is the workflow aligned to the intended actor, not an imagined ideal user?
+- Is the workflow aligned to the intended Actor, not an imagined idealized Actor?
 
-These critiques must be tied to named users, workflows, goals, and constraints, not vague aesthetic commentary.
+These critiques must be tied to named Actors, workflows, goals, and constraints, not vague aesthetic commentary.
 
 ### 7. DOCUMENTATION GOVERNANCE
 The platform must treat repo documentation as an operational system, not an afterthought.
