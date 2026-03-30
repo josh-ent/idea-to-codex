@@ -630,6 +630,18 @@ onMounted(() => {
                 "
               />
             </div>
+            <div
+              v-if="store.generatedReview.record.status === 'attention_required'"
+              class="panel-actions"
+            >
+              <Button
+                label="Generate Review Follow-up"
+                icon="pi pi-sparkles"
+                size="small"
+                :loading="store.isGeneratingProposal"
+                @click="store.generateReviewProposalSetForSelectedTranche"
+              />
+            </div>
             <pre>{{ store.generatedReview.content }}</pre>
           </div>
         </template>
