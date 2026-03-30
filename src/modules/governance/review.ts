@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { getRepositoryState } from "../artifacts/git.js";
+import { formatInlineList } from "../artifacts/markdown.js";
 import {
   collectValidationErrors,
   loadTranche,
@@ -237,10 +238,6 @@ function buildReviewRecord(
     path: `docs/reviews/${id}.md`,
     content,
   };
-}
-
-function formatInlineList(values: string[]): string {
-  return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
 }
 
 function today(): string {

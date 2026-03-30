@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   defaultExecutionConduct,
 } from "../artifacts/contracts.js";
+import { formatInlineList } from "../artifacts/markdown.js";
 import {
   collectValidationErrors,
   loadDecisions,
@@ -251,8 +252,4 @@ function sectionToBulletList(sectionContent: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.startsWith("- "))
     .map((line) => line.slice(2).trim());
-}
-
-function formatInlineList(values: string[]): string {
-  return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
 }

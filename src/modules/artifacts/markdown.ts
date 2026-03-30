@@ -132,3 +132,7 @@ export function extractMarkdownCodeFence(markdown: string): string {
   const match = /^```(?:\w+)?\n([\s\S]*?)\n```$/m.exec(markdown.trim());
   return match ? match[1] : markdown.trim();
 }
+
+export function formatInlineList(values: string[]): string {
+  return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
+}
