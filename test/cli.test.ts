@@ -88,6 +88,18 @@ describe("cli commands", () => {
     expect(result.stdout).toContain('"path": "docs/reviews/REVIEW-TRANCHE-001.md"');
   });
 
+  it("prints JSON for package refresh without persistence", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const result = await runCli(repo.rootDir, ["package:refresh", "TRANCHE-001", "--no-persist"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"tranche_id": "TRANCHE-001"');
+    expect(result.stdout).toContain('"type": "plan"');
+    expect(result.stdout).toContain('"type": "execution"');
+  });
+
   it("exits non-zero for an invalid package type", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);

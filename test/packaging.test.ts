@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { generatePackage } from "../src/modules/packaging/service.js";
+import { generatePackage, refreshPackageSet } from "../src/modules/packaging/service.js";
 import {
   buildPlanMd,
   buildTrancheRecord,
@@ -228,5 +228,17 @@ describe("package generation", () => {
 
     expect(result.relativePath).toBe("handoffs/plan/tranche-001-plan.md");
     expect(await repo.exists("handoffs/plan/tranche-001-plan.md")).toBe(true);
+  });
+
+  it("refreshes and persists both package types together", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const result = await refreshPackageSet(repo.rootDir, "TRANCHE-001", true);
+
+    expect(result.tranche_id).toBe("TRANCHE-001");
+    expect(result.packages.map((entry) => entry.record.type)).toEqual(["plan", "execution"]);
+    expect(await repo.exists("handoffs/plan/tranche-001-plan.md")).toBe(true);
+    expect(await repo.exists("handoffs/execution/tranche-001-execution.md")).toBe(true);
   });
 });

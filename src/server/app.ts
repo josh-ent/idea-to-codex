@@ -10,7 +10,7 @@ import {
 } from "../modules/artifacts/repository.js";
 import { generateReview } from "../modules/governance/review.js";
 import { analyzeRequest } from "../modules/intake/service.js";
-import { generatePackage } from "../modules/packaging/service.js";
+import { generatePackage, refreshPackageSet } from "../modules/packaging/service.js";
 import {
   approveProposalDraft,
   generateIntakeProposalSet,
@@ -72,6 +72,20 @@ export function createApp(rootDir: string) {
         await generatePackage(
           rootDir,
           request.params.type as "plan" | "execution",
+          request.params.trancheId,
+          request.body?.persist !== false,
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/package-sets/:trancheId/refresh", async (request, response, next) => {
+    try {
+      response.status(201).json(
+        await refreshPackageSet(
+          rootDir,
           request.params.trancheId,
           request.body?.persist !== false,
         ),

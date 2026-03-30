@@ -55,6 +55,11 @@ export interface PackagePayload {
   content: string;
 }
 
+export interface PackageSetPayload {
+  tranche_id: string;
+  packages: PackagePayload[];
+}
+
 export interface ReviewPayload {
   id: string;
   relativePath: string;
@@ -62,6 +67,8 @@ export interface ReviewPayload {
     id: string;
     source_tranche: string;
     status: "recorded" | "attention_required";
+    related_packages: string[];
+    drift_signals: string[];
   };
   path: string;
   content: string;
@@ -189,12 +196,14 @@ export const useConsoleStore = defineStore("console", () => {
   const isLoading = ref(false);
   const isLoadingProposals = ref(false);
   const isGeneratingPackage = ref(false);
+  const isRefreshingPackageSet = ref(false);
   const isGeneratingReview = ref(false);
   const isGeneratingProposal = ref(false);
   const activeProposalMutationId = ref("");
   const packageType = ref<"plan" | "execution">("plan");
   const selectedTrancheId = ref<string>("");
   const generatedPackage = ref<PackagePayload | null>(null);
+  const generatedPackageSet = ref<PackageSetPayload | null>(null);
   const generatedReview = ref<ReviewPayload | null>(null);
   const intakeRequest = ref("");
   const intakeAnalysis = ref<IntakeAnalysis | null>(null);
@@ -277,20 +286,70 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
+    await generatePackageFor(packageType.value, selectedTrancheId.value);
+  }
+
+  async function generatePackageFor(
+    type: "plan" | "execution",
+    trancheId: string,
+  ) {
     isGeneratingPackage.value = true;
     lastError.value = "";
 
     try {
       generatedPackage.value = await postJson<PackagePayload>(
-        `/api/packages/${packageType.value}/${selectedTrancheId.value}`,
+        `/api/packages/${type}/${trancheId}`,
         { persist: true },
       );
+      generatedPackageSet.value = null;
+      packageType.value = type;
+      selectedTrancheId.value = trancheId;
       await loadStatus();
     } catch (error) {
       lastError.value =
         error instanceof Error ? error.message : "package generation failed";
     } finally {
       isGeneratingPackage.value = false;
+    }
+  }
+
+  async function regeneratePackageFromReview(packageId: string, trancheId: string) {
+    const type =
+      packageId.startsWith("PLAN-")
+        ? "plan"
+        : packageId.startsWith("EXECUTION-")
+          ? "execution"
+          : null;
+
+    if (!type) {
+      lastError.value = `Unsupported package id: ${packageId}`;
+      return;
+    }
+
+    await generatePackageFor(type, trancheId);
+  }
+
+  async function refreshSelectedPackageSet() {
+    if (!selectedTrancheId.value) {
+      lastError.value = "Select a tranche before refreshing its package set.";
+      return;
+    }
+
+    isRefreshingPackageSet.value = true;
+    lastError.value = "";
+
+    try {
+      generatedPackageSet.value = await postJson<PackageSetPayload>(
+        `/api/package-sets/${selectedTrancheId.value}/refresh`,
+        { persist: true },
+      );
+      generatedPackage.value = null;
+      await loadStatus();
+    } catch (error) {
+      lastError.value =
+        error instanceof Error ? error.message : "package refresh failed";
+    } finally {
+      isRefreshingPackageSet.value = false;
     }
   }
 
@@ -446,12 +505,14 @@ export const useConsoleStore = defineStore("console", () => {
     isLoading,
     isLoadingProposals,
     isGeneratingPackage,
+    isRefreshingPackageSet,
     isGeneratingReview,
     isGeneratingProposal,
     activeProposalMutationId,
     packageType,
     selectedTrancheId,
     generatedPackage,
+    generatedPackageSet,
     generatedReview,
     intakeRequest,
     intakeAnalysis,
@@ -464,6 +525,8 @@ export const useConsoleStore = defineStore("console", () => {
     loadProposalQueue,
     loadProposalSet,
     generateSelectedPackage,
+    refreshSelectedPackageSet,
+    regeneratePackageFromReview,
     generateReviewCheckpoint,
     analyzeIntakeRequest,
     generateIntakeProposalSetFromAnalysis,

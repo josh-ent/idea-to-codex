@@ -62,6 +62,23 @@ describe("server routes", () => {
     expect(response.body.error).toContain("Unknown tranche: TRANCHE-999");
   });
 
+  it("refreshes and persists both package types through the api", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const response = await request(app)
+      .post("/api/package-sets/TRANCHE-001/refresh")
+      .send({ persist: true });
+
+    expect(response.status).toBe(201);
+    expect(response.body.tranche_id).toBe("TRANCHE-001");
+    expect(response.body.packages.map((entry: { record: { type: string } }) => entry.record.type)).toEqual([
+      "plan",
+      "execution",
+    ]);
+  });
+
   it("returns a 500 when review generation targets an unknown tranche", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);

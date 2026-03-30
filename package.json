@@ -15,6 +15,7 @@
     "validate": "tsx src/cli.ts validate",
     "package:plan": "tsx src/cli.ts package plan",
     "package:execution": "tsx src/cli.ts package execution",
+    "package:refresh": "tsx src/cli.ts package:refresh",
     "review": "tsx src/cli.ts review",
     "proposal:intake": "tsx src/cli.ts proposal:intake",
     "proposal:review": "tsx src/cli.ts proposal:review",

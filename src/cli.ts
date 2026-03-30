@@ -4,7 +4,7 @@ import {
   validateRepository,
 } from "./modules/artifacts/repository.js";
 import { generateReview } from "./modules/governance/review.js";
-import { generatePackage } from "./modules/packaging/service.js";
+import { generatePackage, refreshPackageSet } from "./modules/packaging/service.js";
 import {
   approveProposalDraft,
   generateIntakeProposalSet,
@@ -47,6 +47,17 @@ async function main() {
     const result = await generatePackage(
       process.cwd(),
       type,
+      trancheId,
+      flags.includes("--persist") || !flags.includes("--no-persist"),
+    );
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === "package:refresh") {
+    const [trancheId = "TRANCHE-001", ...flags] = args;
+    const result = await refreshPackageSet(
+      process.cwd(),
       trancheId,
       flags.includes("--persist") || !flags.includes("--no-persist"),
     );
@@ -106,7 +117,7 @@ async function main() {
   }
 
   throw new Error(
-    "usage: bootstrap | validate | package <plan|execution> [TRANCHE-ID] [--persist] | review [TRANCHE-ID] [--persist] | proposal:intake <request> [--answer=Q-001:...] | proposal:review [TRANCHE-ID] | proposal:approve <PROPOSAL-ID> | proposal:reject <PROPOSAL-ID>",
+    "usage: bootstrap | validate | package <plan|execution> [TRANCHE-ID] [--persist] | package:refresh [TRANCHE-ID] [--persist] | review [TRANCHE-ID] [--persist] | proposal:intake <request> [--answer=Q-001:...] | proposal:review [TRANCHE-ID] | proposal:approve <PROPOSAL-ID> | proposal:reject <PROPOSAL-ID>",
   );
 }
 

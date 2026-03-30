@@ -489,6 +489,14 @@ onMounted(() => {
               :loading="store.isGeneratingPackage"
               @click="store.generateSelectedPackage"
             />
+
+            <Button
+              label="Refresh Package Set"
+              icon="pi pi-sync"
+              severity="secondary"
+              :loading="store.isRefreshingPackageSet"
+              @click="store.refreshSelectedPackageSet"
+            />
           </div>
 
           <div v-if="store.generatedPackage" class="package-output">
@@ -498,6 +506,21 @@ onMounted(() => {
               <span>{{ store.generatedPackage.path }}</span>
             </div>
             <pre>{{ store.generatedPackage.content }}</pre>
+          </div>
+
+          <div v-if="store.generatedPackageSet" class="record-list">
+            <article
+              v-for="pkg in store.generatedPackageSet.packages"
+              :key="pkg.id"
+              class="package-output"
+            >
+              <div class="package-output__meta">
+                <Tag :value="pkg.record.type" severity="success" />
+                <strong>{{ pkg.record.id }}</strong>
+                <span>{{ pkg.path }}</span>
+              </div>
+              <pre>{{ pkg.content }}</pre>
+            </article>
           </div>
         </template>
       </Card>
@@ -543,6 +566,32 @@ onMounted(() => {
               />
               <strong>{{ store.generatedReview.record.id }}</strong>
               <span>{{ store.generatedReview.path }}</span>
+            </div>
+            <div
+              v-if="
+                store.generatedReview.record.related_packages.length > 0 &&
+                store.generatedReview.record.drift_signals.some(
+                  (signal) =>
+                    signal === 'package alignment drift detected' ||
+                    signal === 'workflow context not propagated into packages',
+                )
+              "
+              class="panel-actions"
+            >
+              <Button
+                v-for="packageId in store.generatedReview.record.related_packages"
+                :key="packageId"
+                :label="`Regenerate ${packageId}`"
+                icon="pi pi-refresh"
+                size="small"
+                :loading="store.isGeneratingPackage"
+                @click="
+                  store.regeneratePackageFromReview(
+                    packageId,
+                    store.generatedReview.record.source_tranche,
+                  )
+                "
+              />
             </div>
             <pre>{{ store.generatedReview.content }}</pre>
           </div>

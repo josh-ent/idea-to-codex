@@ -25,6 +25,8 @@ export interface GeneratedReview {
     id: string;
     source_tranche: string;
     status: "recorded" | "attention_required";
+    related_packages: string[];
+    drift_signals: string[];
   };
   path: string;
   content: string;
@@ -213,6 +215,8 @@ function buildReviewRecord(
       id,
       source_tranche: tranche.id,
       status,
+      related_packages: relatedPackageIds,
+      drift_signals: detectedSignals,
     },
     path: `docs/reviews/${id}.md`,
     content,
@@ -411,7 +415,9 @@ function buildRecommendedActions(input: {
   }
 
   if (input.packageAlignmentDrift.length > 0) {
-    actions.push("Regenerate linked handoff packages so they realign with the current tranche truth.");
+    actions.push(
+      `Regenerate the stale package set with \`npm run package:refresh -- ${input.tranche.id}\` or the operator-console refresh action so persisted handoffs realign with current tranche truth.`,
+    );
   }
 
   if (input.repositoryState.available && input.repositoryState.is_dirty) {

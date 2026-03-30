@@ -86,6 +86,22 @@ export async function generatePackage(
   };
 }
 
+export async function refreshPackageSet(
+  rootDir: string,
+  trancheId: string,
+  persist = true,
+) {
+  const packages = await Promise.all([
+    generatePackage(rootDir, "plan", trancheId, persist),
+    generatePackage(rootDir, "execution", trancheId, persist),
+  ]);
+
+  return {
+    tranche_id: trancheId,
+    packages,
+  };
+}
+
 function buildPackageMarkdown(input: {
   id: string;
   type: "plan" | "execution";

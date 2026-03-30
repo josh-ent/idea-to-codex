@@ -134,6 +134,11 @@ describe("review checkpoints", () => {
     const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
 
     expect(review.record.status).toBe("recorded");
+    expect(review.record.related_packages).toEqual([
+      "PLAN-TRANCHE-001",
+      "EXECUTION-TRANCHE-001",
+    ]);
+    expect(review.record.drift_signals).toEqual([]);
     expect(review.content).toContain("No configured drift signals detected.");
     expect(review.content).toContain("No durable drift findings detected.");
   });
@@ -193,12 +198,17 @@ describe("review checkpoints", () => {
     const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
 
     expect(review.record.status).toBe("attention_required");
+    expect(review.record.related_packages).toEqual([
+      "PLAN-TRANCHE-001",
+      "EXECUTION-TRANCHE-001",
+    ]);
+    expect(review.record.drift_signals).toContain("package alignment drift detected");
     expect(review.content).toContain("package alignment drift detected");
     expect(review.content).toContain(
       "Linked packages are stale relative to current tranche truth: EXECUTION-TRANCHE-001.",
     );
     expect(review.content).toContain(
-      "Regenerate linked handoff packages so they realign with the current tranche truth.",
+      "Regenerate the stale package set with `npm run package:refresh -- TRANCHE-001` or the operator-console refresh action so persisted handoffs realign with current tranche truth.",
     );
   });
 

@@ -15,10 +15,11 @@
 - `TRANCHE-007`: Execution conduct contract and repository state visibility.
 - `TRANCHE-008`: Proposal integrity hardening.
 - `TRANCHE-009`: Package quality refinement over workflow-aware repo truth.
+- `TRANCHE-010`: Package repair and regeneration guidance for stale handoffs.
 
 ## Next candidate tranches
 
-- `TRANCHE-010`: Package repair and regeneration guidance for stale handoffs.
+- `TRANCHE-011`: Review-guided console actions for missing package coverage and tranche-state correction.
 
 ## Deferred
 

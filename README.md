@@ -17,6 +17,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - persist structured Actor and Use Case workflow context on workflow-scoped tranches and propagate it into review and package generation.
 - include execution-conduct expectations in execution handoffs and surface repository branch and dirty-state evidence in the operator console.
 - detect stale persisted handoff packages when they drift from the current tranche truth.
+- offer direct package-regeneration actions from review output when stale handoffs are detected.
 
 ## Core principles
 
@@ -40,6 +41,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run validate` validates the repository contract and record schemas.
 - `npm run package:plan -- <TRANCHE_ID>` generates a plan package snapshot.
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
+- `npm run package:refresh -- <TRANCHE_ID>` regenerates and persists the plan and execution package set for a tranche.
 - `npm run review -- <TRANCHE_ID>` generates a persisted review checkpoint.
 - `npm run proposal:intake -- "<request>"` generates a persisted proposal set from intake analysis.
 - `npm run proposal:review -- <TRANCHE_ID>` generates a persisted proposal set from review findings.
