@@ -18,6 +18,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - include execution-conduct expectations in execution handoffs and surface repository branch and dirty-state evidence in the operator console.
 - detect stale persisted handoff packages when they drift from the current tranche truth.
 - offer direct package-regeneration actions from review output when stale handoffs are detected.
+- offer direct review-panel actions for missing package coverage.
 
 ## Core principles
 

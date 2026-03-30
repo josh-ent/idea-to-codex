@@ -92,6 +92,19 @@ describe("server routes", () => {
     expect(response.body.error).toContain("Unknown tranche: TRANCHE-999");
   });
 
+  it("returns review payload guidance for missing package coverage", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const response = await request(app)
+      .post("/api/reviews/TRANCHE-001")
+      .send({ persist: false });
+
+    expect(response.status).toBe(201);
+    expect(response.body.record.missing_package_types).toEqual(["plan", "execution"]);
+  });
+
   it("returns the empty/default intake analysis for missing or non-string request bodies", async () => {
     const app = createApp(process.cwd());
 

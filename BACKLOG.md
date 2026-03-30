@@ -16,10 +16,11 @@
 - `TRANCHE-008`: Proposal integrity hardening.
 - `TRANCHE-009`: Package quality refinement over workflow-aware repo truth.
 - `TRANCHE-010`: Package repair and regeneration guidance for stale handoffs.
+- `TRANCHE-011`: Review-guided package coverage actions.
 
 ## Next candidate tranches
 
-- `TRANCHE-011`: Review-guided console actions for missing package coverage and tranche-state correction.
+- `TRANCHE-012`: Tranche-state correction guidance when package coverage and tranche status diverge.
 
 ## Deferred
 

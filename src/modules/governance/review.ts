@@ -27,6 +27,7 @@ export interface GeneratedReview {
     status: "recorded" | "attention_required";
     related_packages: string[];
     drift_signals: string[];
+    missing_package_types: Array<"plan" | "execution">;
   };
   path: string;
   content: string;
@@ -150,6 +151,11 @@ function buildReviewRecord(
     ...planPackages.map((record) => record.frontmatter!.id),
     ...executionPackages.map((record) => record.frontmatter!.id),
   ];
+  const missingPackageTypes = deriveMissingPackageTypes({
+    trancheStatus: tranche.status,
+    planPackageCount: planPackages.length,
+    executionPackageCount: executionPackages.length,
+  });
   const content = [
     "---",
     `id: ${id}`,
@@ -217,6 +223,7 @@ function buildReviewRecord(
       status,
       related_packages: relatedPackageIds,
       drift_signals: detectedSignals,
+      missing_package_types: missingPackageTypes,
     },
     path: `docs/reviews/${id}.md`,
     content,
@@ -435,6 +442,24 @@ function buildRecommendedActions(input: {
   return actions.length > 0
     ? actions
     : ["Keep the current tranche state and repository truth as-is."];
+}
+
+function deriveMissingPackageTypes(input: {
+  trancheStatus: NonNullable<Awaited<ReturnType<typeof loadTranche>>["frontmatter"]>["status"];
+  planPackageCount: number;
+  executionPackageCount: number;
+}): Array<"plan" | "execution"> {
+  const packageTypes: Array<"plan" | "execution"> = [];
+
+  if (input.planPackageCount === 0) {
+    packageTypes.push("plan");
+  }
+
+  if (input.executionPackageCount === 0 && input.trancheStatus !== "proposed") {
+    packageTypes.push("execution");
+  }
+
+  return packageTypes;
 }
 
 function packageContainsWorkflowContext(

@@ -43,7 +43,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
 - The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
-- The next meaningful gap is review-guided console action coverage for missing packages and tranche-state correction now that stale package repair is exposed directly.
+- The next meaningful gap is review-history and triage ergonomics now that the main review actions are exposed directly in the console.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
 ## 4. Product Doctrine
@@ -518,7 +518,7 @@ Defer:
 - elaborate agent management UI.
 
 Status:
-- implemented for proposal-era approval gating, proposal integrity hardening, package quality refinement, and stale-package repair guidance; remaining work is review-guided console action coverage for missing packages and tranche-state correction.
+- implemented for proposal-era approval gating, proposal integrity hardening, package quality refinement, stale-package repair guidance, and review-guided package coverage actions; remaining work is tranche-state correction guidance when package coverage and tranche status diverge.
 
 ## 17. Recommended First Tranche
 
@@ -574,6 +574,6 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 19. Immediate Next Actions
 
-1. Build `TRANCHE-011`: add review-guided console actions for missing package coverage and tranche-state correction.
+1. Build `TRANCHE-012`: add tranche-state correction guidance when package coverage and tranche status diverge.
 2. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
 3. Extend review quality only where it materially improves drift detection rather than adding paperwork.

@@ -593,6 +593,43 @@ onMounted(() => {
                 "
               />
             </div>
+            <div
+              v-if="store.generatedReview.record.status === 'attention_required'"
+              class="panel-actions"
+            >
+              <Button
+                v-if="store.generatedReview.record.status === 'attention_required'"
+                label="Generate Review Follow-up"
+                icon="pi pi-sparkles"
+                size="small"
+                severity="secondary"
+                :loading="store.isGeneratingProposal"
+                @click="
+                  store.generateReviewProposalSetForTranche(
+                    store.generatedReview.record.source_tranche,
+                  )
+                "
+              />
+            </div>
+            <div
+              v-if="store.generatedReview.record.missing_package_types.length > 0"
+              class="panel-actions"
+            >
+              <Button
+                v-for="packageType in store.generatedReview.record.missing_package_types"
+                :key="packageType"
+                :label="`Generate ${packageType} package`"
+                icon="pi pi-plus-circle"
+                size="small"
+                :loading="store.isGeneratingPackage"
+                @click="
+                  store.generatePackageFor(
+                    packageType,
+                    store.generatedReview.record.source_tranche,
+                  )
+                "
+              />
+            </div>
             <pre>{{ store.generatedReview.content }}</pre>
           </div>
         </template>

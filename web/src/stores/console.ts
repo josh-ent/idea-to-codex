@@ -69,6 +69,7 @@ export interface ReviewPayload {
     status: "recorded" | "attention_required";
     related_packages: string[];
     drift_signals: string[];
+    missing_package_types: Array<"plan" | "execution">;
   };
   path: string;
   content: string;
@@ -430,15 +431,20 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
+    await generateReviewProposalSetForTranche(selectedTrancheId.value);
+  }
+
+  async function generateReviewProposalSetForTranche(trancheId: string) {
     isGeneratingProposal.value = true;
     lastError.value = "";
 
     try {
       selectedProposalSet.value = await postJson<ProposalSetPayload>(
-        `/api/proposals/review/${selectedTrancheId.value}`,
+        `/api/proposals/review/${trancheId}`,
         {},
       );
       selectedProposalSetId.value = selectedProposalSet.value.id;
+      selectedTrancheId.value = trancheId;
       await Promise.all([loadStatus(), loadProposalQueue()]);
     } catch (error) {
       lastError.value =
@@ -525,12 +531,14 @@ export const useConsoleStore = defineStore("console", () => {
     loadProposalQueue,
     loadProposalSet,
     generateSelectedPackage,
+    generatePackageFor,
     refreshSelectedPackageSet,
     regeneratePackageFromReview,
     generateReviewCheckpoint,
     analyzeIntakeRequest,
     generateIntakeProposalSetFromAnalysis,
     generateReviewProposalSetForSelectedTranche,
+    generateReviewProposalSetForTranche,
     mutateProposal,
     setIntakeAnswer,
   };

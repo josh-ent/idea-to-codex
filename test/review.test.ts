@@ -40,6 +40,7 @@ describe("review checkpoints", () => {
     const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
 
     expect(review.record.status).toBe("attention_required");
+    expect(review.record.missing_package_types).toEqual(["execution"]);
     expect(review.content).toContain("docs outpaced implementation");
   });
 
@@ -58,6 +59,7 @@ describe("review checkpoints", () => {
     const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
 
     expect(review.content).toContain("implementation outpaced docs");
+    expect(review.record.missing_package_types).toEqual(["execution"]);
   });
 
   it("reports terminology drift when tranche terms are missing from the glossary", async () => {
