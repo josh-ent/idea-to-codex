@@ -120,6 +120,8 @@ If v1 cannot do that cleanly, the platform is not yet working.
 - Use Markdown with small YAML front matter for durable records.
 - Persist approved snapshots, not every draft iteration.
 - Prefer one authoritative home for each category of truth.
+- Treat git branches, worktrees, and commits as part of the operating system of the repo, not external process.
+- Prefer frequent atomic commits over long-running dirty worktrees.
 
 ## 7. Required Artefact Schemas
 
@@ -554,6 +556,9 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 - proposal drafts persist before approval; target artefacts mutate only after per-draft approval;
 - manual export or copy into Codex is acceptable initially;
 - operator console over raw file editing, not a polished end-user app.
+- active implementation work should happen on a branch or worktree;
+- meaningful progress should be captured in frequent, sensible commits;
+- tranche-sized work should not sit uncommitted for extended periods.
 
 ### Acceptance criteria
 - The canonical loop works end-to-end.

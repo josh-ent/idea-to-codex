@@ -22,6 +22,15 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - Glossary and data dictionary consistency are first-class concerns.
 - The platform prepares work for Codex; it does not replace Codex.
 
+## Repository workflow
+
+- Treat git history as part of the durable project record, not an afterthought.
+- Do meaningful work on a branch or worktree rather than directly on long-lived shared state.
+- Make frequent, sensible, atomic commits as coherent checkpoints.
+- Do not allow long-running uncommitted work to accumulate.
+- Prefer commit messages that describe the repository change clearly, as a professional engineering team would.
+- Validate the changed slice before committing, and run full repo checks before landing tranche-sized work.
+
 ## Scripts
 
 - `npm run bootstrap` creates any missing baseline artefacts and folders.

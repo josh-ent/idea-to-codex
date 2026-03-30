@@ -227,6 +227,8 @@ It should:
 - surface undocumented assumptions;
 - show when implementation appears to have outpaced documentation;
 - preserve change history through version control rather than chat memory.
+- treat branches, worktrees, and commits as normal engineering controls rather than optional cleanup.
+- expect frequent, reviewable, atomic commits instead of long stretches of invisible local work.
 
 ## FOUNDATIONAL PRINCIPLES
 
