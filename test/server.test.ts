@@ -91,6 +91,22 @@ describe("server routes", () => {
     expect(nonStringResponse.body.material_questions[0]?.type).toBe("bounded_change");
   });
 
+  it("returns the expanded workflow intake question set through the api", async () => {
+    const app = createApp(process.cwd());
+
+    const response = await request(app).post("/api/intake/analyze").send({
+      request: "Improve the operator UI workflow for release review.",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.material_questions.map((question: { type: string }) => question.type)).toEqual([
+      "workflow_actor",
+      "workflow_use_case",
+      "workflow_goal",
+      "workflow_constraints",
+    ]);
+  });
+
   it("creates and loads proposal sets through the api", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);

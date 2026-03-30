@@ -62,6 +62,7 @@ export const proposalDraftSections = [
 export const planTemplateSections = [
   "Objective",
   "Scope",
+  "Workflow Context",
   "Relevant Artefacts",
   "Locked Decisions",
   "Active Assumptions",
@@ -74,6 +75,7 @@ export const planTemplateSections = [
 export const executionTemplateSections = [
   "Objective",
   "Scope",
+  "Workflow Context",
   "Relevant Artefacts",
   "Locked Decisions",
   "Active Assumptions",
@@ -260,6 +262,7 @@ template_type: plan
 required_sections:
   - Objective
   - Scope
+  - Workflow Context
   - Relevant Artefacts
   - Locked Decisions
   - Active Assumptions
@@ -273,6 +276,8 @@ target_consumer: Codex
 # Objective
 
 # Scope
+
+# Workflow Context
 
 # Relevant Artefacts
 
@@ -296,6 +301,7 @@ template_type: execution
 required_sections:
   - Objective
   - Scope
+  - Workflow Context
   - Relevant Artefacts
   - Locked Decisions
   - Active Assumptions
@@ -309,6 +315,8 @@ target_consumer: Codex
 # Objective
 
 # Scope
+
+# Workflow Context
 
 # Relevant Artefacts
 

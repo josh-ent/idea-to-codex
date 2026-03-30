@@ -29,6 +29,10 @@
 | `related_decisions` | string[] | Decision ids explicitly linked to the tranche. |
 | `related_assumptions` | string[] | Assumption ids explicitly linked to the tranche. |
 | `related_terms` | string[] | Glossary terms explicitly linked to the tranche. |
+| `actor` | string | The Actor in the system-under-specification whose goal-driven interaction is being critiqued. Optional unless any workflow context field is present. |
+| `use_case` | string | The named Use Case being planned, critiqued, or packaged. Optional unless any workflow context field is present. |
+| `actor_goal` | string | The task outcome the Actor is trying to achieve in the Use Case. Optional unless any workflow context field is present. |
+| `use_case_constraints` | string[] | Constraints the Use Case must respect. Optional unless any workflow context field is present; workflow-scoped tranches require at least one non-placeholder constraint. |
 | `review_trigger` | string | The checkpoint condition for this tranche. |
 | `acceptance_status` | enum | One of `not_started`, `in_progress`, `met`, or `failed`. |
 

@@ -192,6 +192,10 @@ export function buildTrancheRecord(input: {
   relatedDecisions: string[];
   relatedAssumptions: string[];
   relatedTerms: string[];
+  actor?: string;
+  useCase?: string;
+  actorGoal?: string;
+  useCaseConstraints?: string[];
   reviewTrigger: string;
   acceptanceStatus: TrancheFrontmatter["acceptance_status"];
   scope: string[];
@@ -214,6 +218,12 @@ export function buildTrancheRecord(input: {
     ...yamlList("related_decisions", input.relatedDecisions),
     ...yamlList("related_assumptions", input.relatedAssumptions),
     ...yamlList("related_terms", input.relatedTerms),
+    ...(input.actor ? [`actor: ${input.actor}`] : []),
+    ...(input.useCase ? [`use_case: ${input.useCase}`] : []),
+    ...(input.actorGoal ? [`actor_goal: ${input.actorGoal}`] : []),
+    ...(input.useCaseConstraints
+      ? yamlList("use_case_constraints", input.useCaseConstraints)
+      : []),
     `review_trigger: ${input.reviewTrigger}`,
     `acceptance_status: ${input.acceptanceStatus}`,
     "---",

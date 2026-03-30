@@ -13,12 +13,13 @@ This document describes the current system structure.
 - A Node backend owns file-backed bootstrap, validation, intake analysis, review checkpoint generation, traceability, and package assembly.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
+- Workflow critique now uses durable `Actor`, `Use Case`, goal, and constraint fields on workflow-scoped tranches and reuses that context in review and package generation.
 - A Vue.js + Pinia + PrimeVue operator console sits on top of the backend and stays thin: it inspects truth, generates proposal sets, and approves or rejects draft writes.
 
 ## Module boundaries
 
 - `artifacts`: repository paths, baseline templates, markdown record loading, and durable writes.
-- `governance`: drift signals, review triggers, and review checkpoint generation.
+- `governance`: drift signals, review triggers, review checkpoint generation, and placeholder detection for `Actor` / `Use Case` workflow critique.
 - `intake`: deterministic request classification and Material Question generation.
 - `packaging`: plan and execution package assembly from validated repo truth.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.

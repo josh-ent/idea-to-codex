@@ -43,7 +43,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
 - The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
-- The next meaningful gap is workflow critique tied to named Actors, workflows, and constraints, plus stronger cross-record validation over the new proposal layer.
+- The next meaningful gap is stronger cross-record validation over the proposal layer and package quality checks over workflow-aware repo truth.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
 ## 4. Product Doctrine
@@ -569,7 +569,6 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 19. Immediate Next Actions
 
-1. Build `TRANCHE-006`: workflow critique support tied to named Actors, workflows, goals, and constraints.
-2. Strengthen cross-record validation so proposal approval cannot silently increase glossary or decision drift.
-3. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
-4. Extend review quality only where it materially improves drift detection rather than adding paperwork.
+1. Build `TRANCHE-007`: strengthen cross-record validation so proposal approval cannot silently increase glossary, workflow-context, or decision drift.
+2. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
+3. Extend review quality only where it materially improves drift detection rather than adding paperwork.

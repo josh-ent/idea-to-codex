@@ -4,6 +4,7 @@ import { generateReview } from "../src/modules/governance/review.js";
 import { generatePackage } from "../src/modules/packaging/service.js";
 import {
   buildDecisionRecord,
+  buildHandoffRecord,
   buildTrancheRecord,
   createFixtureRepo,
   seedValidRepository,
@@ -133,6 +134,72 @@ describe("review checkpoints", () => {
     expect(review.record.status).toBe("recorded");
     expect(review.content).toContain("No configured drift signals detected.");
     expect(review.content).toContain("No durable drift findings detected.");
+  });
+
+  it("reports workflow context propagation drift when linked packages are missing workflow context", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      tranches: [
+        {
+          path: "docs/tranches/TRANCHE-001-test.md",
+          content: buildTrancheRecord({
+            actor: "Release operator",
+            useCase: "Approve generated package",
+            actorGoal: "Confirm the package is ready without reading raw markdown",
+            useCaseConstraints: ["Keep approval-gated writes"],
+            relatedTerms: ["Actor", "Use Case"],
+          }),
+        },
+      ],
+      planPackages: [
+        {
+          path: "handoffs/plan/tranche-001-plan.md",
+          content: buildHandoffRecord({ omitSections: ["Workflow Context"] }),
+        },
+      ],
+      executionPackages: [
+        {
+          path: "handoffs/execution/tranche-001-execution.md",
+          content: buildHandoffRecord({ type: "execution", omitSections: ["Workflow Context"] }),
+        },
+      ],
+    });
+
+    const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
+
+    expect(review.content).toContain("workflow context not propagated into packages");
+    expect(review.content).toContain("Linked packages are missing or out of sync with Workflow Context");
+    expect(review.content).toContain("Regenerate linked handoff packages so Workflow Context matches the tranche.");
+  });
+
+  it("reports placeholder workflow context values", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      tranches: [
+        {
+          path: "docs/tranches/TRANCHE-001-test.md",
+          content: buildTrancheRecord({
+            actor: "Actor",
+            useCase: "Use Case",
+            actorGoal: "Improve workflow",
+            useCaseConstraints: ["Keep approval-gated writes"],
+            relatedTerms: ["Actor", "Use Case"],
+          }),
+        },
+      ],
+    });
+    await generatePackage(repo.rootDir, "plan", "TRANCHE-001", true);
+    await generatePackage(repo.rootDir, "execution", "TRANCHE-001", true);
+
+    const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
+
+    expect(review.content).toContain("workflow context still uses placeholder values");
+    expect(review.content).toContain(
+      "Workflow context still uses placeholder values in: actor, use_case, actor_goal.",
+    );
+    expect(review.content).toContain(
+      "Replace placeholder workflow values with concrete Actor, Use Case, Goal, and Constraint wording.",
+    );
   });
 
   it("does not persist when persist is false", async () => {

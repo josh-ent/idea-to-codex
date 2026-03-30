@@ -21,6 +21,10 @@ Establish the durable file contract and backend logic required to validate artef
 - Implement deterministic plan and execution package generation.
 - Expose minimal backend routes for status, bootstrap, and package generation.
 
+# Workflow Context
+
+- No Actor-scoped workflow context is defined for this tranche.
+
 # Relevant Artefacts
 
 - PROJECT_AIMS.md

@@ -1,16 +1,55 @@
 const analysisRules = [
   {
-    type: "workflow_semantics",
+    type: "workflow_actor",
     keywords: ["ui", "workflow", "screen", "page", "journey", "operator", "frontend"],
     blocking: true,
     affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
     affectedModules: ["ui"],
     defaultRecommendation:
-      "Keep the interaction task-oriented and route durable writes through the backend.",
+      "Name the Actor explicitly so workflow critique stays tied to the real participant rather than an abstract user.",
     consequenceOfNonDecision:
-      "The operator console may optimize for the system rather than the operator's real task.",
+      "Workflow critique will stay ambiguous because the real participant is undefined.",
     prompt:
-      "Which operator task or workflow needs to improve, and what should stay explicitly out of scope?",
+      "Which Actor is this workflow or Use Case for?",
+  },
+  {
+    type: "workflow_use_case",
+    keywords: ["ui", "workflow", "screen", "page", "journey", "operator", "frontend"],
+    blocking: true,
+    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    affectedModules: ["ui"],
+    defaultRecommendation:
+      "Name the Use Case explicitly so critique stays attached to one real task instead of a vague workflow area.",
+    consequenceOfNonDecision:
+      "Workflow critique will stay broad because the intended Use Case is undefined.",
+    prompt:
+      "What named Use Case or workflow is being changed or critiqued?",
+  },
+  {
+    type: "workflow_goal",
+    keywords: ["ui", "workflow", "screen", "page", "journey", "operator", "frontend"],
+    blocking: true,
+    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    affectedModules: ["ui"],
+    defaultRecommendation:
+      "State the Actor goal in task terms so the system can judge whether the workflow serves it.",
+    consequenceOfNonDecision:
+      "The system cannot tell whether the workflow helps the Actor succeed or just moves data around.",
+    prompt:
+      "What goal is the Actor trying to achieve in this Use Case?",
+  },
+  {
+    type: "workflow_constraints",
+    keywords: ["ui", "workflow", "screen", "page", "journey", "operator", "frontend"],
+    blocking: true,
+    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    affectedModules: ["ui"],
+    defaultRecommendation:
+      "List the workflow constraints explicitly so critique can weigh the tradeoffs against the Actor goal.",
+    consequenceOfNonDecision:
+      "The system may critique the workflow without knowing the rules or tradeoffs it must respect.",
+    prompt:
+      "What constraints must this Use Case respect? Separate multiple constraints with new lines or semicolons.",
   },
   {
     type: "terminology_integrity",

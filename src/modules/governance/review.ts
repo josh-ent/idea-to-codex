@@ -4,10 +4,17 @@ import path from "node:path";
 import {
   collectValidationErrors,
   loadTranche,
+  sectionContent,
   type RepositoryValidation,
   validateRepository,
 } from "../artifacts/repository.js";
 import { driftSignals } from "./policy.js";
+import {
+  findWorkflowPlaceholderFields,
+  hasWorkflowContext,
+  missingWorkflowFields as findMissingWorkflowFields,
+  workflowContextLines,
+} from "./workflow.js";
 
 export interface GeneratedReview {
   id: string;
@@ -52,31 +59,53 @@ function buildReviewRecord(
         tranche.related_decisions.includes(decision.id) ||
         decision.related_tranches.includes(tranche.id),
     );
-  const planPackages = validation.planPackages.filter(
+  const planPackageRecords = validation.planPackages.filter(
     (record) =>
-      record.frontmatter?.source_tranche === tranche.id && record.errors.length === 0,
+      record.frontmatter?.source_tranche === tranche.id,
   );
-  const executionPackages = validation.executionPackages.filter(
+  const executionPackageRecords = validation.executionPackages.filter(
     (record) =>
-      record.frontmatter?.source_tranche === tranche.id && record.errors.length === 0,
+      record.frontmatter?.source_tranche === tranche.id,
   );
+  const planPackages = planPackageRecords.filter((record) => record.errors.length === 0);
+  const executionPackages = executionPackageRecords.filter((record) => record.errors.length === 0);
   const glossaryTerms = new Set(validation.glossaryTerms.map((term) => term.term));
   const missingTerms = tranche.related_terms.filter((term) => !glossaryTerms.has(term));
   const validationErrors = collectValidationErrors(validation);
+  const workflowContext = {
+    actor: tranche.actor,
+    use_case: tranche.use_case,
+    actor_goal: tranche.actor_goal,
+    use_case_constraints: tranche.use_case_constraints,
+  };
+  const workflowScoped = hasWorkflowContext(workflowContext);
+  const missingWorkflowFields = findMissingWorkflowFields(workflowContext);
+  const workflowPlaceholderFields = findWorkflowPlaceholderFields(workflowContext);
+  const packagesMissingWorkflowContext = workflowScoped
+    ? [...planPackageRecords, ...executionPackageRecords].filter(
+        (record) => !packageContainsWorkflowContext(record.content, workflowContext),
+      )
+    : [];
   const detectedSignals = detectDriftSignals({
     tranche,
     planPackageCount: planPackages.length,
     executionPackageCount: executionPackages.length,
     missingTerms,
     relatedDecisionCount: relatedDecisions.length,
+    missingWorkflowFields,
+    packagesMissingWorkflowContext: packagesMissingWorkflowContext.length,
+    workflowPlaceholderFields: workflowPlaceholderFields.length,
   });
   const findings = buildFindings({
     validationErrors,
-    planPackages,
-    executionPackages,
+    planPackages: planPackageRecords,
+    executionPackages: executionPackageRecords,
     missingTerms,
     architectureDecisionMissing:
       tranche.affected_artifacts.includes("ARCHITECTURE.md") && relatedDecisions.length === 0,
+    missingWorkflowFields,
+    packagesMissingWorkflowContext,
+    workflowPlaceholderFields,
   });
   const recommendedActions = buildRecommendedActions({
     tranche,
@@ -85,6 +114,9 @@ function buildReviewRecord(
     validationErrors,
     planPackages,
     executionPackages,
+    missingWorkflowFields,
+    packagesMissingWorkflowContext,
+    workflowPlaceholderFields,
   });
   const status =
     validationErrors.length > 0 || detectedSignals.length > 0
@@ -171,6 +203,9 @@ function detectDriftSignals(input: {
   executionPackageCount: number;
   missingTerms: string[];
   relatedDecisionCount: number;
+  missingWorkflowFields: string[];
+  packagesMissingWorkflowContext: number;
+  workflowPlaceholderFields: number;
 }): string[] {
   const signals: string[] = [];
 
@@ -200,6 +235,18 @@ function detectDriftSignals(input: {
     signals.push(driftSignals[3]);
   }
 
+  if (input.missingWorkflowFields.length > 0) {
+    signals.push(driftSignals[4]);
+  }
+
+  if (input.packagesMissingWorkflowContext > 0) {
+    signals.push(driftSignals[5]);
+  }
+
+  if (input.workflowPlaceholderFields > 0) {
+    signals.push(driftSignals[6]);
+  }
+
   return unique(signals);
 }
 
@@ -209,6 +256,9 @@ function buildFindings(input: {
   executionPackages: RepositoryValidation["executionPackages"];
   missingTerms: string[];
   architectureDecisionMissing: boolean;
+  missingWorkflowFields: string[];
+  packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
+  workflowPlaceholderFields: string[];
 }): string[] {
   const findings: string[] = [];
 
@@ -236,6 +286,26 @@ function buildFindings(input: {
     );
   }
 
+  if (input.missingWorkflowFields.length > 0) {
+    findings.push(
+      `Workflow context is missing required tranche fields: ${input.missingWorkflowFields.join(", ")}.`,
+    );
+  }
+
+  if (input.packagesMissingWorkflowContext.length > 0) {
+    findings.push(
+      `Linked packages are missing or out of sync with Workflow Context: ${input.packagesMissingWorkflowContext
+        .map((record) => record.frontmatter?.id ?? record.path)
+        .join(", ")}.`,
+    );
+  }
+
+  if (input.workflowPlaceholderFields.length > 0) {
+    findings.push(
+      `Workflow context still uses placeholder values in: ${input.workflowPlaceholderFields.join(", ")}.`,
+    );
+  }
+
   return findings.length > 0 ? findings : ["No durable drift findings detected."];
 }
 
@@ -246,6 +316,9 @@ function buildRecommendedActions(input: {
   validationErrors: string[];
   planPackages: RepositoryValidation["planPackages"];
   executionPackages: RepositoryValidation["executionPackages"];
+  missingWorkflowFields: string[];
+  packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
+  workflowPlaceholderFields: string[];
 }): string[] {
   const actions: string[] = [];
 
@@ -269,9 +342,34 @@ function buildRecommendedActions(input: {
     actions.push("Capture the architecture change in a decision record linked to the tranche.");
   }
 
+  if (input.missingWorkflowFields.length > 0) {
+    actions.push("Record Actor, Use Case, Goal, and Constraints on the tranche before more workflow critique proceeds.");
+  }
+
+  if (input.packagesMissingWorkflowContext.length > 0) {
+    actions.push("Regenerate linked handoff packages so Workflow Context matches the tranche.");
+  }
+
+  if (input.workflowPlaceholderFields.length > 0) {
+    actions.push("Replace placeholder workflow values with concrete Actor, Use Case, Goal, and Constraint wording.");
+  }
+
   return actions.length > 0
     ? actions
     : ["Keep the current tranche state and repository truth as-is."];
+}
+
+function packageContainsWorkflowContext(
+  markdown: string,
+  workflowContext: Parameters<typeof workflowContextLines>[0],
+): boolean {
+  const workflowSection = sectionContent(markdown, "Workflow Context");
+
+  if (!workflowSection) {
+    return false;
+  }
+
+  return workflowContextLines(workflowContext).every((line) => workflowSection.includes(line));
 }
 
 function formatInlineList(values: string[]): string {

@@ -22,6 +22,11 @@ import type {
   ProposalSetFrontmatter,
 } from "../artifacts/schemas.js";
 import { generateReview } from "../governance/review.js";
+import {
+  isWorkflowQuestionType,
+  normalizeWorkflowConstraints,
+  type WorkflowContext,
+} from "../governance/workflow.js";
 import { analyzeRequest } from "../intake/service.js";
 import {
   buildAssumptionsProposal,
@@ -159,12 +164,24 @@ export async function generateIntakeProposalSet(
   const decisionNeeded = analysis.material_questions.some(
     (question) => question.type === "architecture_direction",
   );
-  const glossaryTerms = analysis.material_questions.some(
-    (question) => question.type === "terminology_integrity",
-  )
-    ? deriveGlossaryTerms(requestText, answers)
-    : [];
-  const assumptionEntries = deriveAssumptions(analysis.summary, analysis.draft_assumptions, answers);
+  const workflowContext = deriveWorkflowContext(analysis, answers);
+  const glossaryTerms = deduplicateGlossaryTerms([
+    ...(analysis.material_questions.some(
+      (question) => question.type === "terminology_integrity",
+    )
+      ? deriveGlossaryTerms(requestText, answers)
+      : []),
+    ...deriveWorkflowGlossaryTerms(
+      validation.glossaryTerms.map((term) => term.term),
+      workflowContext,
+    ),
+  ]);
+  const assumptionEntries = deriveAssumptions(
+    analysis.summary,
+    analysis.draft_assumptions,
+    analysis.material_questions,
+    answers,
+  );
   const nextAssumptionIds = assignSequentialIds(
     validation.assumptions.map((assumption) => assumption.id),
     "A",
@@ -242,7 +259,13 @@ export async function generateIntakeProposalSet(
         affectedModules: analysis.affected_modules.length > 0 ? analysis.affected_modules : ["intake"],
         relatedDecisions: decisionId ? [decisionId] : [],
         relatedAssumptions: assumptions.map((assumption) => assumption.id),
-        relatedTerms: [],
+        relatedTerms: unique([
+          ...(workflowContext ? ["Actor", "Use Case"] : []),
+        ]),
+        actor: workflowContext?.actor,
+        useCase: workflowContext?.use_case,
+        actorGoal: workflowContext?.actor_goal,
+        useCaseConstraints: workflowContext?.use_case_constraints,
         reviewTrigger: "tranche_complete",
         acceptanceStatus: "not_started",
         scope: [
@@ -515,6 +538,10 @@ export async function generateReviewProposalSet(
         relatedDecisions: tranche.related_decisions,
         relatedAssumptions: tranche.related_assumptions,
         relatedTerms: tranche.related_terms,
+        actor: tranche.actor,
+        useCase: tranche.use_case,
+        actorGoal: tranche.actor_goal,
+        useCaseConstraints: tranche.use_case_constraints,
         reviewTrigger: tranche.review_trigger,
         acceptanceStatus: "pending",
         scope: bulletLines(trancheRecord.content, "Scope"),
@@ -782,12 +809,18 @@ function assignSequentialIds(existingIds: string[], prefix: string, count: numbe
 function deriveAssumptions(
   summary: string,
   draftAssumptions: string[],
+  questions: Array<{ id: string; type: string }>,
   answers: Record<string, string>,
 ): string[] {
   const assumptions = [...draftAssumptions];
+  const questionTypes = new Map(questions.map((question) => [question.id, question.type]));
 
   for (const [questionId, answer] of Object.entries(answers)) {
     if (!answer.trim()) {
+      continue;
+    }
+
+    if (isWorkflowQuestionType(questionTypes.get(questionId) ?? "")) {
       continue;
     }
 
@@ -818,6 +851,66 @@ function deriveGlossaryTerms(
       notes: `Derived from operator answer: ${termAnswer.trim()}`,
     },
   ];
+}
+
+function deriveWorkflowContext(
+  analysis: ReturnType<typeof analyzeRequest>,
+  answers: Record<string, string>,
+): WorkflowContext | null {
+  const questionIds = Object.fromEntries(
+    analysis.material_questions.map((question) => [question.type, question.id]),
+  );
+  const actorAnswer = answers[questionIds.workflow_actor]?.trim();
+  const useCaseAnswer = answers[questionIds.workflow_use_case]?.trim();
+  const goalAnswer = answers[questionIds.workflow_goal]?.trim();
+  const constraintsAnswer = answers[questionIds.workflow_constraints]?.trim();
+
+  if (!actorAnswer && !useCaseAnswer && !goalAnswer && !constraintsAnswer) {
+    return null;
+  }
+
+  return {
+    actor: actorAnswer,
+    use_case: useCaseAnswer,
+    actor_goal: goalAnswer,
+    use_case_constraints: constraintsAnswer
+      ? normalizeWorkflowConstraints(constraintsAnswer)
+      : [],
+  };
+}
+
+function deriveWorkflowGlossaryTerms(
+  existingTerms: string[],
+  workflowContext: WorkflowContext | null,
+): Array<{ term: string; definition: string; notes: string }> {
+  if (!workflowContext) {
+    return [];
+  }
+
+  return [
+    {
+      term: "Actor",
+      definition:
+        "The external person or system role whose goal-driven interaction with the system-under-specification is being described or critiqued.",
+      notes:
+        "Use Actor for workflow critique and specification context, not for collaborators inside this single-operator platform.",
+    },
+    {
+      term: "Use Case",
+      definition:
+        "A named goal-oriented interaction between an Actor and the system-under-specification that provides the durable unit for workflow critique.",
+      notes:
+        "Use Case is the canonical structured workflow concept for tranche records, packages, and review findings.",
+    },
+  ].filter((term) => !existingTerms.includes(term.term));
+}
+
+function deduplicateGlossaryTerms(
+  terms: Array<{ term: string; definition: string; notes: string }>,
+): Array<{ term: string; definition: string; notes: string }> {
+  return terms.filter(
+    (term, index) => terms.findIndex((candidate) => candidate.term === term.term) === index,
+  );
 }
 
 function extractCanonicalTerm(answer: string): string {

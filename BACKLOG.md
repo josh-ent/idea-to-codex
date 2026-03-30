@@ -2,7 +2,7 @@
 
 ## Active tranches
 
-- `TRANCHE-006`: Workflow critique support tied to named Actors, workflows, goals, and constraints.
+- None.
 
 ## Completed tranches
 
@@ -11,6 +11,7 @@
 - `TRANCHE-003`: Selective question generation and intake classification.
 - `TRANCHE-004`: Review checkpoint automation and stronger drift detection.
 - `TRANCHE-005`: Approval-gated durable truth updates from intake and review outcomes.
+- `TRANCHE-006`: Structured workflow critique with Actor and Use Case context.
 
 ## Next candidate tranches
 

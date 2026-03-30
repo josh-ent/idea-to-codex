@@ -87,8 +87,17 @@
 - Allowed aliases: `workflow actor`, `role`
 - Definition: The external person or system role whose goal-driven interaction with the system-under-specification is being described or critiqued.
 - Disallowed or deprecated synonyms: `user` when it could be confused with the single operator using this platform
-- Related entities: `Material Question`, `Operator Console`, `Tranche`
+- Related entities: `Material Question`, `Operator Console`, `Tranche`, `Use Case`
 - Notes / usage constraints: Use `Actor` for workflow critique and product-specification context. Do not use it to describe collaborators inside this repository-backed platform unless the platform itself is the product being specified.
+
+## Use Case
+
+- Canonical name: `Use Case`
+- Allowed aliases: `workflow`
+- Definition: A named goal-oriented interaction between an Actor and the system-under-specification that provides the durable unit for workflow critique.
+- Disallowed or deprecated synonyms: `flow area`, `generic journey`
+- Related entities: `Actor`, `Material Question`, `Tranche`
+- Notes / usage constraints: Use `use_case` as the structured tranche field name. Plain `workflow` remains acceptable prose where it reads better.
 
 ## Material Question
 

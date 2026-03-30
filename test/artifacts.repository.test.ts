@@ -92,6 +92,45 @@ describe("repository validation", () => {
     expect(validation.tranches[0]?.errors.some((error) => error.includes("priority"))).toBe(true);
   });
 
+  it("reports incomplete workflow context on workflow-scoped tranches", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      tranches: [
+        {
+          path: "docs/tranches/TRANCHE-001-test.md",
+          content: buildTrancheRecord({ actor: "Release operator" }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.tranches[0]?.errors.some((error) => error.includes("use_case"))).toBe(true);
+  });
+
+  it("reports placeholder-only workflow constraints on workflow-scoped tranches", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      tranches: [
+        {
+          path: "docs/tranches/TRANCHE-001-test.md",
+          content: buildTrancheRecord({
+            actor: "Release operator",
+            useCase: "Approve generated package",
+            actorGoal: "Confirm readiness",
+            useCaseConstraints: ["workflow", "tbd"],
+          }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(
+      validation.tranches[0]?.errors.some((error) => error.includes("use_case_constraints")),
+    ).toBe(true);
+  });
+
   it("reports invalid review front matter", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {
@@ -301,6 +340,22 @@ describe("repository validation", () => {
     const validation = await validateRepository(repo.rootDir);
 
     expect(validation.planPackages[0]?.errors.some((error) => error.includes("type"))).toBe(true);
+  });
+
+  it("reports missing workflow context sections in handoffs", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      planPackages: [
+        {
+          path: "handoffs/plan/tranche-001-plan.md",
+          content: buildHandoffRecord({ omitSections: ["Workflow Context"] }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.planPackages[0]?.errors).toContain("missing section: Workflow Context");
   });
 
   it("reports wrong handoff type in the execution directory", async () => {

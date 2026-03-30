@@ -3,6 +3,7 @@ template_type: plan
 required_sections:
   - Objective
   - Scope
+  - Workflow Context
   - Relevant Artefacts
   - Locked Decisions
   - Active Assumptions
@@ -20,6 +21,10 @@ target_consumer: Codex
 # Scope
 
 <!-- Define in-scope and out-of-scope boundaries. -->
+
+# Workflow Context
+
+<!-- List Actor, Use Case, Goal, and Constraints, or state that no Actor-scoped workflow context is defined. -->
 
 # Relevant Artefacts
 

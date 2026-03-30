@@ -10,4 +10,7 @@ export const driftSignals = [
   "docs outpaced implementation",
   "terminology drift detected",
   "architecture intent drift detected",
+  "workflow context missing or incomplete",
+  "workflow context not propagated into packages",
+  "workflow context still uses placeholder values",
 ] as const;

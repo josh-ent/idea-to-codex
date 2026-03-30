@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+import {
+  hasNonPlaceholderWorkflowConstraint,
+  hasWorkflowContext,
+  missingWorkflowFields,
+  type WorkflowContext,
+} from "../governance/workflow.js";
+
 export const decisionFrontmatterSchema = z.object({
   id: z.string().regex(/^DEC-\d{3}$/),
   title: z.string().min(1),
@@ -19,28 +26,64 @@ export const decisionFrontmatterSchema = z.object({
   tags: z.array(z.string().min(1)).default([]),
 });
 
-export const trancheFrontmatterSchema = z.object({
-  id: z.string().regex(/^TRANCHE-\d{3}$/),
-  title: z.string().min(1),
-  status: z.enum(["proposed", "approved", "in_progress", "complete", "superseded"]),
-  priority: z.enum(["high", "medium", "low"]),
-  goal: z.string().min(1),
-  depends_on: z.array(z.string().min(1)).default([]),
-  affected_artifacts: z.array(z.string().min(1)).min(1),
-  affected_modules: z.array(z.string().min(1)).min(1),
-  related_decisions: z.array(z.string().min(1)).default([]),
-  related_assumptions: z.array(z.string().min(1)).default([]),
-  related_terms: z.array(z.string().min(1)).default([]),
-  review_trigger: z.string().min(1),
-  acceptance_status: z.enum([
-    "not_started",
-    "in_progress",
-    "met",
-    "failed",
-    "pending",
-    "passed",
-  ]),
-});
+export const trancheFrontmatterSchema = z
+  .object({
+    id: z.string().regex(/^TRANCHE-\d{3}$/),
+    title: z.string().min(1),
+    status: z.enum(["proposed", "approved", "in_progress", "complete", "superseded"]),
+    priority: z.enum(["high", "medium", "low"]),
+    goal: z.string().min(1),
+    depends_on: z.array(z.string().min(1)).default([]),
+    affected_artifacts: z.array(z.string().min(1)).min(1),
+    affected_modules: z.array(z.string().min(1)).min(1),
+    related_decisions: z.array(z.string().min(1)).default([]),
+    related_assumptions: z.array(z.string().min(1)).default([]),
+    related_terms: z.array(z.string().min(1)).default([]),
+    actor: z.string().trim().min(1).optional(),
+    use_case: z.string().trim().min(1).optional(),
+    actor_goal: z.string().trim().min(1).optional(),
+    use_case_constraints: z.array(z.string().trim().min(1)).optional(),
+    review_trigger: z.string().min(1),
+    acceptance_status: z.enum([
+      "not_started",
+      "in_progress",
+      "met",
+      "failed",
+      "pending",
+      "passed",
+    ]),
+  })
+  .superRefine((value, context) => {
+    const workflowContext: WorkflowContext = {
+      actor: value.actor,
+      use_case: value.use_case,
+      actor_goal: value.actor_goal,
+      use_case_constraints: value.use_case_constraints,
+    };
+
+    if (!hasWorkflowContext(workflowContext)) {
+      return;
+    }
+
+    for (const field of missingWorkflowFields(workflowContext)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: "workflow-scoped tranches require actor, use_case, actor_goal, and use_case_constraints",
+      });
+    }
+
+    if (
+      value.use_case_constraints &&
+      !hasNonPlaceholderWorkflowConstraint(value.use_case_constraints)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["use_case_constraints"],
+        message: "workflow-scoped tranches require at least one non-placeholder use_case_constraint",
+      });
+    }
+  });
 
 export const promptTemplateSchema = z.object({
   template_type: z.enum(["plan", "execution"]),

@@ -13,6 +13,7 @@ import {
   validateRepository,
 } from "../artifacts/repository.js";
 import { driftSignals, reviewTriggers } from "../governance/policy.js";
+import { workflowContextLines } from "../governance/workflow.js";
 
 export async function generatePackage(
   rootDir: string,
@@ -127,6 +128,10 @@ function buildPackageMarkdown(input: {
     "# Scope",
     "",
     input.scope,
+    "",
+    "# Workflow Context",
+    "",
+    ...workflowContextLines(input.tranche ?? {}),
     "",
     "# Relevant Artefacts",
     "",

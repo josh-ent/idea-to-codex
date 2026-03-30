@@ -39,6 +39,22 @@ describe("proposal workflow", () => {
     ).rejects.toThrow("Unanswered blocking material questions");
   });
 
+  it("refuses workflow intake proposal generation until actor, use case, goal, and constraints are answered", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    await expect(
+      generateIntakeProposalSet(
+        repo.rootDir,
+        "Improve the operator UI workflow for release review.",
+        {
+          "Q-001": "Release operator",
+          "Q-002": "Approve generated package",
+        },
+      ),
+    ).rejects.toThrow("Unanswered blocking material questions");
+  });
+
   it("creates grouped intake drafts for supported artefacts", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
@@ -179,6 +195,40 @@ describe("proposal workflow", () => {
     expect(await repo.read("GLOSSARY.md")).toContain("## Proposal Draft");
     expect(await repo.exists(trancheDraft!.record.target_artifact)).toBe(true);
     expect(await repo.exists(decisionDraft!.record.target_artifact)).toBe(true);
+  });
+
+  it("persists workflow context on workflow-scoped tranche drafts and links Actor and Use Case terms", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+
+    const proposalSet = await generateIntakeProposalSet(
+      repo.rootDir,
+      "Improve the operator UI workflow for release review.",
+      {
+        "Q-001": "Release operator",
+        "Q-002": "Approve generated package",
+        "Q-003": "Confirm the package is ready without reading raw markdown",
+        "Q-004": "Keep approval-gated writes; show tranche scope before approval",
+      },
+    );
+
+    const trancheDraft = proposalSet.drafts.find((draft) =>
+      draft.record.target_artifact.startsWith("docs/tranches/"),
+    );
+    const glossaryDraft = proposalSet.drafts.find(
+      (draft) => draft.record.target_artifact === "GLOSSARY.md",
+    );
+
+    expect(trancheDraft?.proposedContent).toContain("actor: Release operator");
+    expect(trancheDraft?.proposedContent).toContain("use_case: Approve generated package");
+    expect(trancheDraft?.proposedContent).toContain(
+      "actor_goal: Confirm the package is ready without reading raw markdown",
+    );
+    expect(trancheDraft?.proposedContent).toContain("use_case_constraints:");
+    expect(trancheDraft?.proposedContent).toContain("- Actor");
+    expect(trancheDraft?.proposedContent).toContain("- Use Case");
+    expect(glossaryDraft?.proposedContent).toContain("## Actor");
+    expect(glossaryDraft?.proposedContent).toContain("## Use Case");
   });
 
   it("rejects a draft without changing the target artefact", async () => {

@@ -5,11 +5,6 @@ import { analyzeRequest } from "../src/modules/intake/service.js";
 describe("intake analysis", () => {
   it.each([
     {
-      request: "Improve the operator UI workflow for package approval.",
-      expectedType: "workflow_semantics",
-      blocking: true,
-    },
-    {
       request: "Rename the glossary term and align wording across the repo.",
       expectedType: "terminology_integrity",
       blocking: true,
@@ -42,13 +37,28 @@ describe("intake analysis", () => {
     expect(question?.blocking).toBe(blocking);
   });
 
+  it("expands workflow intake into actor, use case, goal, and constraints questions", () => {
+    const analysis = analyzeRequest("Improve the operator UI workflow for release review.");
+
+    expect(analysis.material_questions.map((question) => question.type)).toEqual([
+      "workflow_actor",
+      "workflow_use_case",
+      "workflow_goal",
+      "workflow_constraints",
+    ]);
+    expect(analysis.material_questions.every((question) => question.blocking)).toBe(true);
+  });
+
   it("merges multiple matching rules without duplicate artefacts or modules", () => {
     const analysis = analyzeRequest(
       "Rename the glossary term, adjust the operator workflow UI, and change the backend architecture.",
     );
 
     expect(analysis.material_questions.map((question) => question.type)).toEqual([
-      "workflow_semantics",
+      "workflow_actor",
+      "workflow_use_case",
+      "workflow_goal",
+      "workflow_constraints",
       "terminology_integrity",
       "architecture_direction",
     ]);

@@ -238,6 +238,8 @@ export function buildTrancheRecord(input?: {
   acceptanceStatus?: string;
   affectedArtifacts?: string[];
   affectedModules?: string[];
+  actor?: string;
+  actorGoal?: string;
   dependsOn?: string[];
   goal?: string;
   id?: string;
@@ -249,6 +251,8 @@ export function buildTrancheRecord(input?: {
   reviewTrigger?: string;
   status?: string;
   title?: string;
+  useCase?: string;
+  useCaseConstraints?: string[];
 }): string {
   const sections = [
     section("Scope", "- Validate the repository contract."),
@@ -272,6 +276,12 @@ export function buildTrancheRecord(input?: {
       ...yamlList("related_decisions", input?.relatedDecisions ?? ["DEC-001"]),
       ...yamlList("related_assumptions", input?.relatedAssumptions ?? []),
       ...yamlList("related_terms", input?.relatedTerms ?? ["Artefact", "Tranche"]),
+      ...(input?.actor ? [`actor: ${input.actor}`] : []),
+      ...(input?.useCase ? [`use_case: ${input.useCase}`] : []),
+      ...(input?.actorGoal ? [`actor_goal: ${input.actorGoal}`] : []),
+      ...(input?.useCaseConstraints
+        ? yamlList("use_case_constraints", input.useCaseConstraints)
+        : []),
       `review_trigger: ${input?.reviewTrigger ?? "tranche_complete"}`,
       `acceptance_status: ${input?.acceptanceStatus ?? "in_progress"}`,
     ],
@@ -321,6 +331,12 @@ export function buildHandoffRecord(input?: {
   constraints?: string[];
   id?: string;
   omitSections?: string[];
+  workflowContext?: {
+    actor: string;
+    useCase: string;
+    actorGoal: string;
+    useCaseConstraints: string[];
+  } | null;
   relatedAssumptions?: string[];
   relatedDecisions?: string[];
   relatedTerms?: string[];
@@ -335,6 +351,7 @@ export function buildHandoffRecord(input?: {
       ? [
           section("Objective", "Fixture execution objective."),
           section("Scope", "- Implement the fixture."),
+          section("Workflow Context", workflowSectionLines(input?.workflowContext)),
           section("Relevant Artefacts", "- PLAN.md"),
           section("Locked Decisions", "- DEC-001"),
           section("Active Assumptions", "- A-001"),
@@ -346,6 +363,7 @@ export function buildHandoffRecord(input?: {
       : [
           section("Objective", "Fixture planning objective."),
           section("Scope", "- Plan the fixture."),
+          section("Workflow Context", workflowSectionLines(input?.workflowContext)),
           section("Relevant Artefacts", "- PLAN.md"),
           section("Locked Decisions", "- DEC-001"),
           section("Active Assumptions", "- A-001"),
@@ -471,4 +489,22 @@ function yamlList(name: string, values: string[]): string[] {
   }
 
   return [ `${name}:`, ...values.map((value) => `  - ${value}`) ];
+}
+
+function workflowSectionLines(input?: {
+  actor: string;
+  useCase: string;
+  actorGoal: string;
+  useCaseConstraints: string[];
+} | null): string {
+  if (!input) {
+    return "- No Actor-scoped workflow context is defined for this tranche.";
+  }
+
+  return [
+    `- Actor: ${input.actor}`,
+    `- Use Case: ${input.useCase}`,
+    `- Goal: ${input.actorGoal}`,
+    ...input.useCaseConstraints.map((constraint) => `- Constraint: ${constraint}`),
+  ].join("\n");
 }

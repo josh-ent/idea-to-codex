@@ -13,6 +13,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - analyze vague requests into bounded intake outputs;
 - persist review checkpoints and surface drift signals.
 - persist approval-gated proposal drafts for meaning-bearing artefacts and apply them only after explicit operator approval.
+- persist structured Actor and Use Case workflow context on workflow-scoped tranches and propagate it into review and package generation.
 
 ## Core principles
 
