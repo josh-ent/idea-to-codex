@@ -1,193 +1,22 @@
-import { computed, ref } from "vue";
+import { computed, ref, type Ref } from "vue";
 import { defineStore } from "pinia";
+import {
+  getJson,
+  postJson,
+  type IntakeAnalysis,
+  type PackagePayload,
+  type PackageSetPayload,
+  type ProposalMutationPayload,
+  type ProposalSetPayload,
+  type ProposalSetSummary,
+  type ReviewPayload,
+  type StatusPayload,
+} from "../api/console";
 
-export interface ValidatedRecord {
-  path: string;
-  content: string;
-  errors: string[];
-  frontmatter: Record<string, unknown> | null;
-}
-
-export interface TraceLink {
-  fromType: string;
-  fromId: string;
-  toType: string;
-  toId: string;
-  reason: string;
-}
-
-export interface StatusPayload {
-  repository_state: {
-    available: boolean;
-    branch: string | null;
-    head: string | null;
-    dirty_paths: string[];
-    is_dirty: boolean;
-    is_main_branch: boolean;
-  };
-  validation: {
-    rootFiles: Array<{ path: string; exists: boolean }>;
-    directories: Array<{ path: string; exists: boolean }>;
-    decisions: ValidatedRecord[];
-    proposalSets: ValidatedRecord[];
-    proposalDrafts: ValidatedRecord[];
-    tranches: ValidatedRecord[];
-    reviews: ValidatedRecord[];
-    planPackages: ValidatedRecord[];
-    executionPackages: ValidatedRecord[];
-    assumptions: Array<{ id: string; text: string }>;
-    glossaryTerms: Array<{ term: string; definition: string; notes: string }>;
-    openQuestions: string[];
-    traceLinks: TraceLink[];
-  };
-  errors: string[];
-}
-
-export interface PackagePayload {
-  id: string;
-  relativePath: string;
-  record: {
-    id: string;
-    type: "plan" | "execution";
-    source_tranche: string;
-  };
-  path: string;
-  content: string;
-}
-
-export interface PackageSetPayload {
-  tranche_id: string;
-  packages: PackagePayload[];
-}
-
-export interface ReviewPayload {
-  id: string;
-  relativePath: string;
-  record: {
-    id: string;
-    source_tranche: string;
-    status: "recorded" | "attention_required";
-    related_packages: string[];
-    drift_signals: string[];
-    missing_package_types: Array<"plan" | "execution">;
-  };
-  path: string;
-  content: string;
-}
-
-export interface ProposalMutationPayload {
-  proposal_set_id: string;
-  proposal_id: string;
-  status: "approved" | "rejected";
-  target_artifact: string;
-}
-
-export interface ProposalDraftPayload {
-  id: string;
-  relativePath: string;
-  record: {
-    id: string;
-    proposal_set_id: string;
-    status: "draft" | "approved" | "rejected" | "superseded";
-    source_type: "intake" | "review";
-    source_ref: string;
-    target_artifact: string;
-    target_kind: "top_level" | "record";
-    generated_on: string;
-  };
-  summary: string;
-  sourceContext: string;
-  proposedContent: string;
-  content: string;
-}
-
-export interface ProposalSetSummary {
-  id: string;
-  relativePath: string;
-  record: {
-    id: string;
-    status: "draft" | "partially_approved" | "approved" | "rejected" | "superseded";
-    source_type: "intake" | "review";
-    source_ref: string;
-    generated_on: string;
-  };
-  draft_count: number;
-}
-
-export interface ProposalSetPayload {
-  id: string;
-  relativePath: string;
-  record: ProposalSetSummary["record"];
-  summary: string;
-  sourceContext: string;
-  draftsSection: string;
-  drafts: ProposalDraftPayload[];
-  content: string;
-}
-
-export interface IntakeQuestion {
-  id: string;
-  type: string;
-  blocking: boolean;
-  default_recommendation: string;
-  consequence_of_non_decision: string;
-  affected_artifacts: string[];
-  status: "open";
-  prompt: string;
-}
-
-export interface IntakeAnalysis {
-  summary: string;
-  recommended_tranche_title: string;
-  affected_artifacts: string[];
-  affected_modules: string[];
-  material_questions: IntakeQuestion[];
-  draft_assumptions: string[];
-}
-
-async function postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const payload = (await response.json()) as T | { error?: string; errors?: string[] };
-
-  if (!response.ok) {
-    if ("error" in payload && typeof payload.error === "string") {
-      throw new Error(payload.error);
-    }
-
-    if ("errors" in payload && Array.isArray(payload.errors)) {
-      throw new Error(payload.errors.join("\n"));
-    }
-
-    throw new Error(`request failed with status ${response.status}`);
-  }
-
-  return payload as T;
-}
-
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
-  const payload = (await response.json()) as T | { error?: string; errors?: string[] };
-
-  if (!response.ok) {
-    if ("error" in payload && typeof payload.error === "string") {
-      throw new Error(payload.error);
-    }
-
-    if ("errors" in payload && Array.isArray(payload.errors)) {
-      throw new Error(payload.errors.join("\n"));
-    }
-
-    throw new Error(`request failed with status ${response.status}`);
-  }
-
-  return payload as T;
-}
+const reviewPackageRefreshSignals = new Set([
+  "package alignment drift detected",
+  "workflow context not propagated into packages",
+]);
 
 export const useConsoleStore = defineStore("console", () => {
   const status = ref<StatusPayload | null>(null);
@@ -211,36 +40,29 @@ export const useConsoleStore = defineStore("console", () => {
   const intakeAnswers = ref<Record<string, string>>({});
   const lastError = ref<string>("");
 
-  async function loadStatus() {
+  async function loadStatus(options: { clearError?: boolean } = {}) {
     isLoading.value = true;
-    lastError.value = "";
+
+    if (options.clearError !== false) {
+      lastError.value = "";
+    }
 
     try {
-      const response = await fetch("/api/status");
-      const payload = (await response.json()) as StatusPayload;
-
-      if (!response.ok) {
-        throw new Error(payload.errors?.join("\n") || "status request failed");
-      }
-
-      status.value = payload;
-
-      const firstTranche = payload.validation.tranches[0]?.frontmatter?.id;
-
-      if (!selectedTrancheId.value && typeof firstTranche === "string") {
-        selectedTrancheId.value = firstTranche;
-      }
+      status.value = await getJson<StatusPayload>("/api/status");
+      ensureSelectedTranche();
     } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "status request failed";
+      setTaskError(error, "status request failed");
     } finally {
       isLoading.value = false;
     }
   }
 
-  async function loadProposalQueue() {
+  async function loadProposalQueue(options: { clearError?: boolean } = {}) {
     isLoadingProposals.value = true;
-    lastError.value = "";
+
+    if (options.clearError !== false) {
+      lastError.value = "";
+    }
 
     try {
       proposalSets.value = await getJson<ProposalSetSummary[]>("/api/proposals");
@@ -255,8 +77,7 @@ export const useConsoleStore = defineStore("console", () => {
         selectedProposalSet.value = null;
       }
     } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "proposal queue request failed";
+      setTaskError(error, "proposal queue request failed");
     } finally {
       isLoadingProposals.value = false;
     }
@@ -276,28 +97,23 @@ export const useConsoleStore = defineStore("console", () => {
         `/api/proposals/${proposalSetId}`,
       );
     } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "proposal detail request failed";
+      setTaskError(error, "proposal detail request failed");
     }
   }
 
   async function generateSelectedPackage() {
-    if (!selectedTrancheId.value) {
-      lastError.value = "Select a tranche before generating a package.";
-      return;
-    }
+    const trancheId = requireSelectedTranche("Select a tranche before generating a package.");
 
-    await generatePackageFor(packageType.value, selectedTrancheId.value);
+    if (trancheId) {
+      await generatePackageFor(packageType.value, trancheId);
+    }
   }
 
   async function generatePackageFor(
     type: "plan" | "execution",
     trancheId: string,
   ) {
-    isGeneratingPackage.value = true;
-    lastError.value = "";
-
-    try {
+    await runTask(isGeneratingPackage, "package generation failed", async () => {
       generatedPackage.value = await postJson<PackagePayload>(
         `/api/packages/${type}/${trancheId}`,
         { persist: true },
@@ -305,13 +121,8 @@ export const useConsoleStore = defineStore("console", () => {
       generatedPackageSet.value = null;
       packageType.value = type;
       selectedTrancheId.value = trancheId;
-      await loadStatus();
-    } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "package generation failed";
-    } finally {
-      isGeneratingPackage.value = false;
-    }
+      await loadStatus({ clearError: false });
+    });
   }
 
   async function regeneratePackageFromReview(packageId: string, trancheId: string) {
@@ -331,50 +142,42 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   async function refreshSelectedPackageSet() {
-    if (!selectedTrancheId.value) {
-      lastError.value = "Select a tranche before refreshing its package set.";
+    const trancheId = requireSelectedTranche(
+      "Select a tranche before refreshing its package set.",
+    );
+
+    if (!trancheId) {
       return;
     }
 
-    isRefreshingPackageSet.value = true;
-    lastError.value = "";
-
-    try {
+    await runTask(isRefreshingPackageSet, "package refresh failed", async () => {
       generatedPackageSet.value = await postJson<PackageSetPayload>(
-        `/api/package-sets/${selectedTrancheId.value}/refresh`,
+        `/api/package-sets/${trancheId}/refresh`,
         { persist: true },
       );
       generatedPackage.value = null;
-      await loadStatus();
-    } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "package refresh failed";
-    } finally {
-      isRefreshingPackageSet.value = false;
-    }
+      selectedTrancheId.value = trancheId;
+      await loadStatus({ clearError: false });
+    });
   }
 
   async function generateReviewCheckpoint() {
-    if (!selectedTrancheId.value) {
-      lastError.value = "Select a tranche before generating a review checkpoint.";
+    const trancheId = requireSelectedTranche(
+      "Select a tranche before generating a review checkpoint.",
+    );
+
+    if (!trancheId) {
       return;
     }
 
-    isGeneratingReview.value = true;
-    lastError.value = "";
-
-    try {
+    await runTask(isGeneratingReview, "review generation failed", async () => {
       generatedReview.value = await postJson<ReviewPayload>(
-        `/api/reviews/${selectedTrancheId.value}`,
+        `/api/reviews/${trancheId}`,
         { persist: true },
       );
-      await loadStatus();
-    } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "review generation failed";
-    } finally {
-      isGeneratingReview.value = false;
-    }
+      selectedTrancheId.value = trancheId;
+      await loadStatus({ clearError: false });
+    });
   }
 
   async function analyzeIntakeRequest() {
@@ -396,8 +199,7 @@ export const useConsoleStore = defineStore("console", () => {
         ]),
       );
     } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "intake analysis failed";
+      setTaskError(error, "intake analysis failed");
     }
   }
 
@@ -407,51 +209,36 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
-    isGeneratingProposal.value = true;
-    lastError.value = "";
-
-    try {
+    await runTask(isGeneratingProposal, "proposal generation failed", async () => {
       selectedProposalSet.value = await postJson<ProposalSetPayload>("/api/proposals/intake", {
         request: intakeRequest.value,
         answers: intakeAnswers.value,
       });
       selectedProposalSetId.value = selectedProposalSet.value.id;
-      await Promise.all([loadStatus(), loadProposalQueue()]);
-    } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "proposal generation failed";
-    } finally {
-      isGeneratingProposal.value = false;
-    }
+      await refreshConsoleState({ status: true, proposals: true });
+    });
   }
 
   async function generateReviewProposalSetForSelectedTranche() {
-    if (!selectedTrancheId.value) {
-      lastError.value = "Select a tranche before generating review follow-up proposals.";
-      return;
-    }
+    const trancheId = requireSelectedTranche(
+      "Select a tranche before generating review follow-up proposals.",
+    );
 
-    await generateReviewProposalSetForTranche(selectedTrancheId.value);
+    if (trancheId) {
+      await generateReviewProposalSetForTranche(trancheId);
+    }
   }
 
   async function generateReviewProposalSetForTranche(trancheId: string) {
-    isGeneratingProposal.value = true;
-    lastError.value = "";
-
-    try {
+    await runTask(isGeneratingProposal, "review proposal generation failed", async () => {
       selectedProposalSet.value = await postJson<ProposalSetPayload>(
         `/api/proposals/review/${trancheId}`,
         {},
       );
       selectedProposalSetId.value = selectedProposalSet.value.id;
       selectedTrancheId.value = trancheId;
-      await Promise.all([loadStatus(), loadProposalQueue()]);
-    } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : "review proposal generation failed";
-    } finally {
-      isGeneratingProposal.value = false;
-    }
+      await refreshConsoleState({ status: true, proposals: true });
+    });
   }
 
   async function mutateProposal(
@@ -464,10 +251,9 @@ export const useConsoleStore = defineStore("console", () => {
     try {
       await postJson<ProposalMutationPayload>(`/api/proposals/${proposalId}/${action}`, {});
 
-      await Promise.all([loadStatus(), loadProposalQueue()]);
+      await refreshConsoleState({ status: true, proposals: true });
     } catch (error) {
-      lastError.value =
-        error instanceof Error ? error.message : `proposal ${action} failed`;
+      setTaskError(error, `proposal ${action} failed`);
     } finally {
       activeProposalMutationId.value = "";
     }
@@ -478,6 +264,61 @@ export const useConsoleStore = defineStore("console", () => {
       ...intakeAnswers.value,
       [questionId]: answer,
     };
+  }
+
+  function setIntakeAnswerFromEvent(questionId: string, event: Event) {
+    const target = event.target;
+
+    if (!(target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    setIntakeAnswer(questionId, target.value);
+  }
+
+  function requireSelectedTranche(message: string): string | null {
+    if (!selectedTrancheId.value) {
+      lastError.value = message;
+      return null;
+    }
+
+    return selectedTrancheId.value;
+  }
+
+  function ensureSelectedTranche() {
+    const firstTranche = status.value?.validation.tranches[0]?.frontmatter?.id;
+
+    if (!selectedTrancheId.value && typeof firstTranche === "string") {
+      selectedTrancheId.value = firstTranche;
+    }
+  }
+
+  function setTaskError(error: unknown, fallbackMessage: string) {
+    lastError.value = error instanceof Error ? error.message : fallbackMessage;
+  }
+
+  async function refreshConsoleState(input: { status?: boolean; proposals?: boolean }) {
+    await Promise.all([
+      input.status ? loadStatus({ clearError: false }) : Promise.resolve(),
+      input.proposals ? loadProposalQueue({ clearError: false }) : Promise.resolve(),
+    ]);
+  }
+
+  async function runTask(
+    flag: Ref<boolean>,
+    fallbackMessage: string,
+    task: () => Promise<void>,
+  ) {
+    flag.value = true;
+    lastError.value = "";
+
+    try {
+      await task();
+    } catch (error) {
+      setTaskError(error, fallbackMessage);
+    } finally {
+      flag.value = false;
+    }
   }
 
   const trancheOptions = computed(() =>
@@ -501,6 +342,24 @@ export const useConsoleStore = defineStore("console", () => {
 
   const hasUnansweredBlockingQuestions = computed(() =>
     blockingQuestions.value.some((question) => !intakeAnswers.value[question.id]?.trim()),
+  );
+
+  const reviewPackageRegenerationIds = computed(() => {
+    const review = generatedReview.value;
+
+    if (!review) {
+      return [];
+    }
+
+    const requiresRefresh = review.record.drift_signals.some((signal) =>
+      reviewPackageRefreshSignals.has(signal),
+    );
+
+    return requiresRefresh ? review.record.related_packages : [];
+  });
+
+  const canGenerateReviewFollowUp = computed(
+    () => generatedReview.value?.record.status === "attention_required",
   );
 
   return {
@@ -527,6 +386,8 @@ export const useConsoleStore = defineStore("console", () => {
     trancheOptions,
     blockingQuestions,
     hasUnansweredBlockingQuestions,
+    reviewPackageRegenerationIds,
+    canGenerateReviewFollowUp,
     loadStatus,
     loadProposalQueue,
     loadProposalSet,
@@ -541,5 +402,6 @@ export const useConsoleStore = defineStore("console", () => {
     generateReviewProposalSetForTranche,
     mutateProposal,
     setIntakeAnswer,
+    setIntakeAnswerFromEvent,
   };
 });
