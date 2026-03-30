@@ -43,7 +43,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
 - The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
-- The next meaningful gap is package quality refinement over workflow-aware repo truth now that proposal integrity is hardened.
+- The next meaningful gap is package repair and regeneration guidance now that stale package drift is detectable.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
 ## 4. Product Doctrine
@@ -518,7 +518,7 @@ Defer:
 - elaborate agent management UI.
 
 Status:
-- implemented for proposal-era approval gating and proposal integrity hardening; remaining work is package quality refinement over workflow-aware repo truth.
+- implemented for proposal-era approval gating, proposal integrity hardening, and package quality refinement; remaining work is package repair and regeneration guidance for stale handoffs.
 
 ## 17. Recommended First Tranche
 
@@ -574,6 +574,6 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 19. Immediate Next Actions
 
-1. Build `TRANCHE-009`: refine package quality so workflow-aware handoffs stay explicit, aligned, and reviewable as repo truth grows.
+1. Build `TRANCHE-010`: add package repair and regeneration guidance once stale handoffs are detected.
 2. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
 3. Extend review quality only where it materially improves drift detection rather than adding paperwork.

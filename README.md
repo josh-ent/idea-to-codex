@@ -16,6 +16,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - re-validate proposal relationships and roll back any approval that would leave repository truth invalid.
 - persist structured Actor and Use Case workflow context on workflow-scoped tranches and propagate it into review and package generation.
 - include execution-conduct expectations in execution handoffs and surface repository branch and dirty-state evidence in the operator console.
+- detect stale persisted handoff packages when they drift from the current tranche truth.
 
 ## Core principles
 

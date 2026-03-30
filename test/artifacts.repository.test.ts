@@ -377,6 +377,85 @@ describe("repository validation", () => {
     );
   });
 
+  it("reports handoff packages that reference missing source tranches", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      planPackages: [
+        {
+          path: "handoffs/plan/tranche-999-plan.md",
+          content: buildHandoffRecord({
+            id: "PLAN-TRANCHE-999",
+            sourceTranche: "TRANCHE-999",
+          }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain(
+      "handoff package references missing source tranche: PLAN-TRANCHE-999 -> TRANCHE-999",
+    );
+  });
+
+  it("reports handoff package metadata drift from the source tranche", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      planPackages: [
+        {
+          path: "handoffs/plan/tranche-001-plan.md",
+          content: buildHandoffRecord({
+            relatedTerms: ["Artefact"],
+          }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain(
+      "handoff package metadata drift: PLAN-TRANCHE-001 related_terms",
+    );
+  });
+
+  it("reports handoff package workflow context drift from the source tranche", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      tranches: [
+        {
+          path: "docs/tranches/TRANCHE-001-test.md",
+          content: buildTrancheRecord({
+            actor: "Release operator",
+            useCase: "Approve generated package",
+            actorGoal: "Confirm package readiness",
+            useCaseConstraints: ["Keep approval-gated writes"],
+            relatedTerms: ["Actor", "Use Case"],
+          }),
+        },
+      ],
+      glossaryTerms: [
+        {
+          term: "Actor",
+          definition: "The external person or system role being described or critiqued.",
+        },
+        {
+          term: "Use Case",
+          definition: "A named goal-oriented interaction for workflow critique.",
+        },
+      ],
+      planPackages: [
+        {
+          path: "handoffs/plan/tranche-001-plan.md",
+          content: buildHandoffRecord(),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain("handoff package workflow context drift: PLAN-TRANCHE-001");
+  });
+
   it("reports missing required markdown sections", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {

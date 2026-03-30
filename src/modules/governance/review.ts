@@ -10,6 +10,7 @@ import {
   validateRepository,
 } from "../artifacts/repository.js";
 import { driftSignals } from "./policy.js";
+import { generatePackage } from "../packaging/service.js";
 import {
   findWorkflowPlaceholderFields,
   hasWorkflowContext,
@@ -38,7 +39,17 @@ export async function generateReview(
   const trancheRecord = await loadTranche(rootDir, trancheId);
   const tranche = trancheRecord.frontmatter!;
   const repositoryState = await getRepositoryState(rootDir);
-  const review = buildReviewRecord(validation, tranche, repositoryState);
+  const packageAlignmentDrift = await findPackageAlignmentDrift(
+    rootDir,
+    tranche.id,
+    validation,
+  );
+  const review = buildReviewRecord(
+    validation,
+    tranche,
+    repositoryState,
+    packageAlignmentDrift,
+  );
 
   if (persist) {
     const absolutePath = path.join(rootDir, review.relativePath);
@@ -53,6 +64,7 @@ function buildReviewRecord(
   validation: RepositoryValidation,
   tranche: NonNullable<Awaited<ReturnType<typeof loadTranche>>["frontmatter"]>,
   repositoryState: Awaited<ReturnType<typeof getRepositoryState>>,
+  packageAlignmentDrift: string[],
 ): GeneratedReview {
   const relatedDecisions = validation.decisions
     .filter((record) => record.frontmatter && record.errors.length === 0)
@@ -98,6 +110,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext: packagesMissingWorkflowContext.length,
     workflowPlaceholderFields: workflowPlaceholderFields.length,
+    packageAlignmentDrift: packageAlignmentDrift.length,
     hasExecutionConductDrift: repositoryState.available && repositoryState.is_dirty,
   });
   const findings = buildFindings({
@@ -110,6 +123,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext,
     workflowPlaceholderFields,
+    packageAlignmentDrift,
     repositoryState,
   });
   const recommendedActions = buildRecommendedActions({
@@ -122,6 +136,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext,
     workflowPlaceholderFields,
+    packageAlignmentDrift,
     repositoryState,
   });
   const status =
@@ -213,6 +228,7 @@ function detectDriftSignals(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: number;
   workflowPlaceholderFields: number;
+  packageAlignmentDrift: number;
   hasExecutionConductDrift: boolean;
 }): string[] {
   const signals: string[] = [];
@@ -255,8 +271,12 @@ function detectDriftSignals(input: {
     signals.push(driftSignals[6]);
   }
 
-  if (input.hasExecutionConductDrift) {
+  if (input.packageAlignmentDrift > 0) {
     signals.push(driftSignals[7]);
+  }
+
+  if (input.hasExecutionConductDrift) {
+    signals.push(driftSignals[8]);
   }
 
   return unique(signals);
@@ -271,6 +291,7 @@ function buildFindings(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
   workflowPlaceholderFields: string[];
+  packageAlignmentDrift: string[];
   repositoryState: Awaited<ReturnType<typeof getRepositoryState>>;
 }): string[] {
   const findings: string[] = [];
@@ -319,6 +340,12 @@ function buildFindings(input: {
     );
   }
 
+  if (input.packageAlignmentDrift.length > 0) {
+    findings.push(
+      `Linked packages are stale relative to current tranche truth: ${input.packageAlignmentDrift.join(", ")}.`,
+    );
+  }
+
   if (input.repositoryState.available && input.repositoryState.is_dirty) {
     findings.push(
       `Repository has uncommitted changes: ${input.repositoryState.dirty_paths.join(", ")}.`,
@@ -346,6 +373,7 @@ function buildRecommendedActions(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
   workflowPlaceholderFields: string[];
+  packageAlignmentDrift: string[];
   repositoryState: Awaited<ReturnType<typeof getRepositoryState>>;
 }): string[] {
   const actions: string[] = [];
@@ -380,6 +408,10 @@ function buildRecommendedActions(input: {
 
   if (input.workflowPlaceholderFields.length > 0) {
     actions.push("Replace placeholder workflow values with concrete Actor, Use Case, Goal, and Constraint wording.");
+  }
+
+  if (input.packageAlignmentDrift.length > 0) {
+    actions.push("Regenerate linked handoff packages so they realign with the current tranche truth.");
   }
 
   if (input.repositoryState.available && input.repositoryState.is_dirty) {
@@ -424,6 +456,50 @@ function formatRepositoryState(
     `- Repository head at review time: ${repositoryState.head ?? "unknown"}.`,
     `- Repository dirty at review time: ${repositoryState.is_dirty ? "yes" : "no"}.`,
   ];
+}
+
+async function findPackageAlignmentDrift(
+  rootDir: string,
+  trancheId: string,
+  validation: RepositoryValidation,
+): Promise<string[]> {
+  const drifts: string[] = [];
+  const expectedContentByType = new Map<"plan" | "execution", string>();
+
+  for (const type of ["plan", "execution"] as const) {
+    const records =
+      type === "plan"
+        ? validation.planPackages
+        : validation.executionPackages;
+    const linkedPackages = records.filter(
+      (record) =>
+        record.frontmatter?.source_tranche === trancheId &&
+        record.errors.length === 0,
+    );
+
+    if (linkedPackages.length === 0) {
+      continue;
+    }
+
+    if (!expectedContentByType.has(type)) {
+      expectedContentByType.set(
+        type,
+        (await generatePackage(rootDir, type, trancheId, false)).content.trim(),
+      );
+    }
+
+    const expectedContent = expectedContentByType.get(type)!;
+
+    for (const record of linkedPackages) {
+      const persistedContent = await fs.readFile(path.resolve(process.cwd(), record.path), "utf8");
+
+      if (persistedContent.trim() !== expectedContent) {
+        drifts.push(record.frontmatter?.id ?? record.path);
+      }
+    }
+  }
+
+  return drifts;
 }
 
 function formatInlineList(values: string[]): string {

@@ -2,9 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
-  defaultConstraints,
   defaultExecutionConduct,
-  defaultValidationChecks,
 } from "../artifacts/contracts.js";
 import {
   collectValidationErrors,
@@ -14,7 +12,14 @@ import {
   validateRepository,
 } from "../artifacts/repository.js";
 import { driftSignals, reviewTriggers } from "../governance/policy.js";
-import { workflowContextLines } from "../governance/workflow.js";
+import {
+  expectedWorkflowContextLines,
+  linkedAssumptionsForTranche,
+  linkedDecisionsForTranche,
+  linkedGlossaryTermsForTranche,
+  packageConstraints,
+  packageValidationRequirements,
+} from "./model.js";
 
 export async function generatePackage(
   rootDir: string,
@@ -31,23 +36,14 @@ export async function generatePackage(
 
   const trancheRecord = await loadTranche(rootDir, trancheId);
   const tranche = trancheRecord.frontmatter!;
-  const decisions = (await loadDecisions(rootDir))
+  const decisions = linkedDecisionsForTranche(
+    tranche,
+    (await loadDecisions(rootDir))
     .filter((record) => record.frontmatter && record.errors.length === 0)
     .map((record) => record.frontmatter!)
-    .filter(
-      (decision) =>
-        tranche.related_decisions.includes(decision.id) ||
-        decision.related_tranches.includes(tranche.id),
-    );
-
-  const assumptions = validation.assumptions.filter((assumption) =>
-    tranche.related_assumptions.length === 0
-      ? true
-      : tranche.related_assumptions.includes(assumption.id),
   );
-  const glossaryTerms = validation.glossaryTerms.filter((term) =>
-    tranche.related_terms.length === 0 ? true : tranche.related_terms.includes(term.term),
-  );
+  const assumptions = linkedAssumptionsForTranche(tranche, validation.assumptions);
+  const glossaryTerms = linkedGlossaryTermsForTranche(tranche, validation.glossaryTerms);
   const acceptanceCriteria = sectionToBulletList(
     sectionContent(trancheRecord.content, "Acceptance criteria"),
   );
@@ -112,11 +108,10 @@ function buildPackageMarkdown(input: {
     `related_decisions: ${formatInlineList(input.decisions.map((decision) => decision.id))}`,
     `related_assumptions: ${formatInlineList(input.assumptions.map((assumption) => assumption.id))}`,
     `related_terms: ${formatInlineList(input.glossaryTerms.map((term) => term.term))}`,
-    `constraints: ${formatInlineList([...defaultConstraints])}`,
-    `validation_requirements: ${formatInlineList([
-      ...defaultValidationChecks,
-      ...input.acceptanceCriteria,
-    ])}`,
+    `constraints: ${formatInlineList(packageConstraints())}`,
+    `validation_requirements: ${formatInlineList(
+      packageValidationRequirements(input.acceptanceCriteria),
+    )}`,
     "---",
     "",
   ];
@@ -132,7 +127,7 @@ function buildPackageMarkdown(input: {
     "",
     "# Workflow Context",
     "",
-    ...workflowContextLines(input.tranche ?? {}),
+    ...expectedWorkflowContextLines(input.tranche!),
     "",
     "# Relevant Artefacts",
     "",
@@ -167,7 +162,7 @@ function buildPackageMarkdown(input: {
     "",
     "# Constraints",
     "",
-    ...defaultConstraints.map((constraint) => `- ${constraint}`),
+    ...packageConstraints().map((constraint) => `- ${constraint}`),
     "",
   ];
 
@@ -194,7 +189,7 @@ function buildPackageMarkdown(input: {
     "",
     "# Validation Requirements",
     "",
-    ...[...defaultValidationChecks, ...input.acceptanceCriteria].map(
+    ...packageValidationRequirements(input.acceptanceCriteria).map(
       (requirement) => `- ${requirement}`,
     ),
     "",

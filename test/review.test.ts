@@ -174,6 +174,34 @@ describe("review checkpoints", () => {
     expect(review.content).toContain("Regenerate linked handoff packages so Workflow Context matches the tranche.");
   });
 
+  it("reports package alignment drift when a persisted package no longer matches current tranche truth", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    await generatePackage(repo.rootDir, "plan", "TRANCHE-001", true);
+    await generatePackage(repo.rootDir, "execution", "TRANCHE-001", true);
+
+    const executionPath = "handoffs/execution/tranche-001-execution.md";
+    const executionPackage = await repo.read(executionPath);
+    await repo.write(
+      executionPath,
+      executionPackage.replace(
+        "Validate the backend.",
+        "Ship a stale handoff objective.",
+      ),
+    );
+
+    const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
+
+    expect(review.record.status).toBe("attention_required");
+    expect(review.content).toContain("package alignment drift detected");
+    expect(review.content).toContain(
+      "Linked packages are stale relative to current tranche truth: EXECUTION-TRANCHE-001.",
+    );
+    expect(review.content).toContain(
+      "Regenerate linked handoff packages so they realign with the current tranche truth.",
+    );
+  });
+
   it("reports placeholder workflow context values", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {

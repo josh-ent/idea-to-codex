@@ -13,5 +13,6 @@ export const driftSignals = [
   "workflow context missing or incomplete",
   "workflow context not propagated into packages",
   "workflow context still uses placeholder values",
+  "package alignment drift detected",
   "execution conduct drift detected",
 ] as const;

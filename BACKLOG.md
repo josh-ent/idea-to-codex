@@ -14,10 +14,11 @@
 - `TRANCHE-006`: Structured workflow critique with Actor and Use Case context.
 - `TRANCHE-007`: Execution conduct contract and repository state visibility.
 - `TRANCHE-008`: Proposal integrity hardening.
+- `TRANCHE-009`: Package quality refinement over workflow-aware repo truth.
 
 ## Next candidate tranches
 
-- `TRANCHE-009`: Package quality refinement over workflow-aware repo truth.
+- `TRANCHE-010`: Package repair and regeneration guidance for stale handoffs.
 
 ## Deferred
 

@@ -40,6 +40,14 @@ import {
   type TrancheFrontmatter,
 } from "./schemas.js";
 import { deriveProposalSetStatus } from "../proposals/status.js";
+import {
+  expectedWorkflowContextLines,
+  linkedAssumptionsForTranche,
+  linkedDecisionsForTranche,
+  linkedGlossaryTermsForTranche,
+  packageConstraints,
+  packageValidationRequirements,
+} from "../packaging/model.js";
 import { buildTraceLinks, type TraceLink } from "../traceability/links.js";
 
 export interface PresenceCheck {
@@ -213,6 +221,14 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
       proposalSets,
       proposalDrafts,
       reviews,
+    }),
+    ...findHandoffAlignmentErrors({
+      tranches,
+      decisions,
+      planPackages,
+      executionPackages,
+      assumptions,
+      glossaryTerms,
     }),
   ];
   const traceLinks = buildTraceLinks({
@@ -572,4 +588,92 @@ function findProposalIntegrityErrors(input: {
   }
 
   return errors;
+}
+
+function findHandoffAlignmentErrors(input: {
+  tranches: Array<ValidatedRecord<TrancheFrontmatter>>;
+  decisions: Array<ValidatedRecord<DecisionFrontmatter>>;
+  planPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
+  executionPackages: Array<ValidatedRecord<HandoffFrontmatter>>;
+  assumptions: ReturnType<typeof parseAssumptions>;
+  glossaryTerms: ReturnType<typeof parseGlossary>;
+}): string[] {
+  const errors: string[] = [];
+  const trancheIndex = new Map(
+    input.tranches
+      .filter((record) => record.frontmatter && record.errors.length === 0)
+      .map((record) => [record.frontmatter!.id, record]),
+  );
+  const decisions = input.decisions
+    .filter((record) => record.frontmatter && record.errors.length === 0)
+    .map((record) => record.frontmatter!);
+
+  for (const handoff of [...input.planPackages, ...input.executionPackages]) {
+    if (!handoff.frontmatter || handoff.errors.length > 0) {
+      continue;
+    }
+
+    const trancheRecord = trancheIndex.get(handoff.frontmatter.source_tranche);
+
+    if (!trancheRecord) {
+      errors.push(
+        `handoff package references missing source tranche: ${handoff.frontmatter.id} -> ${handoff.frontmatter.source_tranche}`,
+      );
+      continue;
+    }
+
+    const acceptanceCriteria = extractBulletItems(
+      trancheRecord.content,
+      "Acceptance criteria",
+    );
+    const expectedRelatedDecisions = linkedDecisionsForTranche(
+      trancheRecord.frontmatter!,
+      decisions,
+    ).map((decision) => decision.id);
+    const expectedRelatedAssumptions = linkedAssumptionsForTranche(
+      trancheRecord.frontmatter!,
+      input.assumptions,
+    ).map((assumption) => assumption.id);
+    const expectedRelatedTerms = linkedGlossaryTermsForTranche(
+      trancheRecord.frontmatter!,
+      input.glossaryTerms,
+    ).map((term) => term.term);
+    const expectedWorkflowLines = expectedWorkflowContextLines(trancheRecord.frontmatter!).map(
+      (line) => line.replace(/^- /, ""),
+    );
+    const actualWorkflowLines = extractBulletItems(handoff.content, "Workflow Context");
+
+    errors.push(
+      ...findArrayDriftErrors(handoff.frontmatter.id, [
+        ["related_decisions", handoff.frontmatter.related_decisions, expectedRelatedDecisions],
+        ["related_assumptions", handoff.frontmatter.related_assumptions, expectedRelatedAssumptions],
+        ["related_terms", handoff.frontmatter.related_terms, expectedRelatedTerms],
+        ["constraints", handoff.frontmatter.constraints, packageConstraints()],
+        [
+          "validation_requirements",
+          handoff.frontmatter.validation_requirements,
+          packageValidationRequirements(acceptanceCriteria),
+        ],
+      ]),
+    );
+
+    if (!sameStringArray(actualWorkflowLines, expectedWorkflowLines)) {
+      errors.push(`handoff package workflow context drift: ${handoff.frontmatter.id}`);
+    }
+  }
+
+  return errors;
+}
+
+function findArrayDriftErrors(
+  handoffId: string,
+  entries: Array<[string, string[], string[]]>,
+): string[] {
+  return entries
+    .filter(([, actual, expected]) => !sameStringArray(actual, expected))
+    .map(([field]) => `handoff package metadata drift: ${handoffId} ${field}`);
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
