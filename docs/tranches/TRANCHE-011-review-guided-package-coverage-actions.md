@@ -35,12 +35,13 @@ acceptance_status: met
 
 - Expose deterministic missing-package guidance in review responses so the console can act on package coverage gaps without scraping markdown.
 - Add direct console actions for generating missing plan or execution packages from a review result.
-- Keep the action path narrow: package coverage only, not tranche-state correction or broader review-action automation.
+- Surface the existing review-follow-up proposal flow directly from the review panel when the checkpoint is already `attention_required`.
+- Keep the action path narrow: package coverage plus existing review follow-up, not tranche-state correction or broader review-action automation.
 
 # Out of scope
 
 - Automatic tranche-state correction when execution coverage is missing.
-- Console actions for glossary, decision, or assumption follow-up.
+- New console actions for glossary, decision, or assumption follow-up beyond the existing review-follow-up path.
 - Background review repair workflows.
 
 # Preconditions
@@ -53,6 +54,7 @@ acceptance_status: met
 
 - Review payloads expose which package types are missing for the reviewed tranche.
 - The operator console offers direct actions to generate those missing package types from the review result.
+- The operator console can launch the existing review-follow-up proposal flow directly from the review result.
 - Existing stale-package regeneration actions remain intact alongside the new missing-package actions.
 
 # Risks / tensions
@@ -63,5 +65,5 @@ acceptance_status: met
 
 # Notes
 
-- This tranche deliberately stops at package coverage actions.
+- This tranche deliberately stops at package coverage actions plus the existing review-follow-up path.
 - Tranche-state correction remains a separate follow-up concern.
