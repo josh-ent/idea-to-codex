@@ -13,10 +13,11 @@
 - `TRANCHE-005`: Approval-gated durable truth updates from intake and review outcomes.
 - `TRANCHE-006`: Structured workflow critique with Actor and Use Case context.
 - `TRANCHE-007`: Execution conduct contract and repository state visibility.
+- `TRANCHE-008`: Proposal integrity hardening.
 
 ## Next candidate tranches
 
-- `TRANCHE-008`: Stronger cross-record validation and package quality checks over proposal-era repo truth.
+- `TRANCHE-009`: Package quality refinement over workflow-aware repo truth.
 
 ## Deferred
 

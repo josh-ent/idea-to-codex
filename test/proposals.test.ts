@@ -256,4 +256,89 @@ describe("proposal workflow", () => {
     expect(await repo.read("BACKLOG.md")).toBe(originalBacklog);
     expect(rejectedDraft?.frontmatter?.status).toBe("rejected");
   });
+
+  it("rolls back approval when the proposed content would invalidate the repository", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: [
+            "---",
+            "id: PROPOSAL-001",
+            "status: draft",
+            "source_type: intake",
+            "source_ref: INTAKE-PROPOSAL-001",
+            "generated_on: 2026-03-30",
+            "---",
+            "",
+            "# Summary",
+            "",
+            "Fixture proposal set.",
+            "",
+            "# Source Context",
+            "",
+            "- Fixture source.",
+            "",
+            "# Drafts",
+            "",
+            "- PROPOSAL-001-README: README.md",
+            "",
+          ].join("\n"),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/readme.md",
+          content: [
+            "---",
+            "id: PROPOSAL-001-README",
+            "proposal_set_id: PROPOSAL-001",
+            "status: draft",
+            "source_type: intake",
+            "source_ref: INTAKE-PROPOSAL-001",
+            "target_artifact: docs/tranches/TRANCHE-001-test.md",
+            "target_kind: record",
+            "generated_on: 2026-03-30",
+            "---",
+            "",
+            "# Summary",
+            "",
+            "Break the tranche on purpose.",
+            "",
+            "# Source Context",
+            "",
+            "- Fixture source.",
+            "",
+            "# Proposed Content",
+            "",
+            "```md",
+            "---",
+            "id: TRANCHE-001",
+            "title: Broken tranche",
+            "status: invalid",
+            "---",
+            "",
+            "# Scope",
+            "",
+            "- Broken scope.",
+            "",
+            "```",
+            "",
+          ].join("\n"),
+        },
+      ],
+    });
+    const originalTranche = await repo.read("docs/tranches/TRANCHE-001-test.md");
+
+    await expect(approveProposalDraft(repo.rootDir, "PROPOSAL-001-README")).rejects.toThrow(
+      "would leave the repository invalid",
+    );
+
+    const validation = await validateRepository(repo.rootDir);
+    const draft = validation.proposalDrafts.find(
+      (record) => record.frontmatter?.id === "PROPOSAL-001-README",
+    );
+
+    expect(await repo.read("docs/tranches/TRANCHE-001-test.md")).toBe(originalTranche);
+    expect(draft?.frontmatter?.status).toBe("draft");
+  });
 });

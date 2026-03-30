@@ -13,6 +13,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - analyze vague requests into bounded intake outputs;
 - persist review checkpoints and surface drift signals.
 - persist approval-gated proposal drafts for meaning-bearing artefacts and apply them only after explicit operator approval.
+- re-validate proposal relationships and roll back any approval that would leave repository truth invalid.
 - persist structured Actor and Use Case workflow context on workflow-scoped tranches and propagate it into review and package generation.
 - include execution-conduct expectations in execution handoffs and surface repository branch and dirty-state evidence in the operator console.
 

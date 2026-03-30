@@ -183,6 +183,24 @@ describe("repository validation", () => {
     expect(validation.proposalDrafts[0]?.errors.some((error) => error.includes("target_kind"))).toBe(true);
   });
 
+  it("reports proposal sets that have no drafts", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({
+            id: "PROPOSAL-001",
+          }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain("proposal set has no drafts: PROPOSAL-001");
+  });
+
   it("reports duplicate decision ids", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo, {
@@ -288,6 +306,75 @@ describe("repository validation", () => {
     const errors = collectValidationErrors(await validateRepository(repo.rootDir));
 
     expect(errors).toContain("duplicate proposal draft id: PROPOSAL-001-BACKLOG");
+  });
+
+  it("reports proposal set ids that do not match their directory", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-009" }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.proposalSets[0]?.errors).toContain(
+      "proposal set id must match directory name: expected PROPOSAL-001",
+    );
+  });
+
+  it("reports proposal drafts whose proposal_set_id does not match their directory", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-001" }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-BACKLOG",
+            proposalSetId: "PROPOSAL-009",
+          }),
+        },
+      ],
+    });
+
+    const validation = await validateRepository(repo.rootDir);
+
+    expect(validation.proposalDrafts[0]?.errors).toContain(
+      "proposal_set_id must match directory name: expected PROPOSAL-001",
+    );
+  });
+
+  it("reports proposal set status drift from child draft states", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord({ id: "PROPOSAL-001", status: "draft" }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-BACKLOG",
+            proposalSetId: "PROPOSAL-001",
+            status: "approved",
+          }),
+        },
+      ],
+    });
+
+    const errors = collectValidationErrors(await validateRepository(repo.rootDir));
+
+    expect(errors).toContain(
+      "proposal set status drift: PROPOSAL-001 expected approved but found draft",
+    );
   });
 
   it("reports missing required markdown sections", async () => {

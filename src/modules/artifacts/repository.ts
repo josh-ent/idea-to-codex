@@ -39,6 +39,7 @@ import {
   trancheFrontmatterSchema,
   type TrancheFrontmatter,
 } from "./schemas.js";
+import { deriveProposalSetStatus } from "../proposals/status.js";
 import { buildTraceLinks, type TraceLink } from "../traceability/links.js";
 
 export interface PresenceCheck {
@@ -208,6 +209,11 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
         .map((record) => record.frontmatter?.id)
         .filter((value): value is string => Boolean(value)),
     ),
+    ...findProposalIntegrityErrors({
+      proposalSets,
+      proposalDrafts,
+      reviews,
+    }),
   ];
   const traceLinks = buildTraceLinks({
     decisions,
@@ -300,7 +306,15 @@ export async function loadProposalSetRecords(rootDir: string) {
         path.join(proposalsRoot, directoryName, "SET.md"),
         proposalSetFrontmatterSchema,
         proposalSetSections,
-      ),
+      ).then((record) => {
+        if (record.frontmatter && record.frontmatter.id !== directoryName) {
+          record.errors.push(
+            `proposal set id must match directory name: expected ${directoryName}`,
+          );
+        }
+
+        return record;
+      }),
     ),
   );
 }
@@ -323,13 +337,19 @@ export async function loadProposalDraftRecords(rootDir: string) {
       .sort();
 
     for (const fileName of fileNames) {
-      output.push(
-        await loadSingleRecord(
-          path.join(proposalDir, fileName),
-          proposalDraftFrontmatterSchema,
-          proposalDraftSections,
-        ),
+      const record = await loadSingleRecord(
+        path.join(proposalDir, fileName),
+        proposalDraftFrontmatterSchema,
+        proposalDraftSections,
       );
+
+      if (record.frontmatter && record.frontmatter.proposal_set_id !== directoryName) {
+        record.errors.push(
+          `proposal_set_id must match directory name: expected ${directoryName}`,
+        );
+      }
+
+      output.push(record);
     }
   }
 
@@ -480,4 +500,76 @@ function findDuplicateIds(kind: string, ids: string[]): string[] {
   }
 
   return [...duplicates].map((id) => `duplicate ${kind} id: ${id}`);
+}
+
+function findProposalIntegrityErrors(input: {
+  proposalSets: Array<ValidatedRecord<ProposalSetFrontmatter>>;
+  proposalDrafts: Array<ValidatedRecord<ProposalDraftFrontmatter>>;
+  reviews: Array<ValidatedRecord<ReviewFrontmatter>>;
+}): string[] {
+  const errors: string[] = [];
+  const validSets = input.proposalSets.filter(
+    (record) => record.frontmatter && record.errors.length === 0,
+  );
+  const validDrafts = input.proposalDrafts.filter(
+    (record) => record.frontmatter && record.errors.length === 0,
+  );
+  const validReviewIds = new Set(
+    input.reviews
+      .filter((record) => record.frontmatter && record.errors.length === 0)
+      .map((record) => record.frontmatter!.id),
+  );
+  const proposalSetIndex = new Map(validSets.map((record) => [record.frontmatter!.id, record]));
+
+  for (const proposalSet of validSets) {
+    const childDrafts = validDrafts.filter(
+      (draft) => draft.frontmatter!.proposal_set_id === proposalSet.frontmatter!.id,
+    );
+    const draftCount = childDrafts.length;
+
+    if (draftCount === 0) {
+      errors.push(`proposal set has no drafts: ${proposalSet.frontmatter!.id}`);
+    }
+
+    const expectedStatus = deriveProposalSetStatus(
+      childDrafts.map((draft) => draft.frontmatter!.status),
+    );
+
+    if (proposalSet.frontmatter!.status !== expectedStatus) {
+      errors.push(
+        `proposal set status drift: ${proposalSet.frontmatter!.id} expected ${expectedStatus} but found ${proposalSet.frontmatter!.status}`,
+      );
+    }
+
+    if (
+      proposalSet.frontmatter!.source_type === "review" &&
+      !validReviewIds.has(proposalSet.frontmatter!.source_ref)
+    ) {
+      errors.push(
+        `proposal set ${proposalSet.frontmatter!.id} references missing review source ${proposalSet.frontmatter!.source_ref}`,
+      );
+    }
+  }
+
+  for (const draft of validDrafts) {
+    const proposalSet = proposalSetIndex.get(draft.frontmatter!.proposal_set_id);
+
+    if (!proposalSet) {
+      errors.push(
+        `proposal draft references missing proposal set: ${draft.frontmatter!.id} -> ${draft.frontmatter!.proposal_set_id}`,
+      );
+      continue;
+    }
+
+    if (
+      draft.frontmatter!.source_type !== proposalSet.frontmatter!.source_type ||
+      draft.frontmatter!.source_ref !== proposalSet.frontmatter!.source_ref
+    ) {
+      errors.push(
+        `proposal draft ${draft.frontmatter!.id} source metadata does not match proposal set ${proposalSet.frontmatter!.id}`,
+      );
+    }
+  }
+
+  return errors;
 }

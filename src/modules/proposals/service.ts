@@ -39,6 +39,7 @@ import {
   slugify,
   type ProposalDraftInput,
 } from "./builders.js";
+import { deriveProposalSetStatus } from "./status.js";
 
 export interface ProposalDraftDetail {
   id: string;
@@ -596,24 +597,50 @@ async function applyProposalMutation(
   proposalId: string,
   nextStatus: "approved" | "rejected",
 ): Promise<ProposalMutationResult> {
+  const draftRecords = await loadProposalDraftRecords(rootDir);
   const draft = requireValidRecord(
-    (await loadProposalDraftRecords(rootDir)).find(
+    draftRecords.find(
       (record) => record.frontmatter?.id === proposalId,
     ),
     `Unknown proposal draft: ${proposalId}`,
   );
+  const proposalSet = requireValidRecord(
+    (await loadProposalSetRecords(rootDir)).find(
+      (record) => record.frontmatter?.id === draft.frontmatter.proposal_set_id,
+    ),
+    `Unknown proposal set: ${draft.frontmatter.proposal_set_id}`,
+  );
+  const previousDraftStatus = draft.frontmatter.status;
+  const previousProposalSetStatus = proposalSet.frontmatter.status;
 
   if (nextStatus === "approved") {
     const proposedContent = extractMarkdownCodeFence(
       sectionContent(draft.content, "Proposed Content"),
     );
     const targetPath = path.join(rootDir, draft.frontmatter.target_artifact);
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, proposedContent, "utf8");
-  }
+    const previousContent = await readOptionalFile(targetPath);
 
-  await writeFrontmatterStatus(resolveRecordPath(draft.path), nextStatus);
-  await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
+    try {
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, proposedContent, "utf8");
+      await writeFrontmatterStatus(resolveRecordPath(draft.path), nextStatus);
+      await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
+      await requireCleanRepository(rootDir);
+    } catch (error) {
+      await restoreTargetArtifact(targetPath, previousContent);
+      await writeFrontmatterStatus(resolveRecordPath(draft.path), previousDraftStatus);
+      await writeFrontmatterStatus(
+        resolveRecordPath(proposalSet.path),
+        previousProposalSetStatus,
+      );
+      throw new Error(
+        `approving ${proposalId} would leave the repository invalid: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  } else {
+    await writeFrontmatterStatus(resolveRecordPath(draft.path), nextStatus);
+    await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
+  }
 
   return {
     proposal_set_id: draft.frontmatter.proposal_set_id,
@@ -640,28 +667,6 @@ async function refreshProposalSetStatus(rootDir: string, proposalSetId: string):
   const status = deriveProposalSetStatus(drafts.map((draft) => draft.status));
 
   await writeFrontmatterStatus(resolveRecordPath(proposalSet.path), status);
-}
-
-function deriveProposalSetStatus(
-  statuses: ProposalDraftFrontmatter["status"][],
-): ProposalSetFrontmatter["status"] {
-  if (statuses.length === 0) {
-    return "draft";
-  }
-
-  if (statuses.every((status) => status === "approved")) {
-    return "approved";
-  }
-
-  if (statuses.every((status) => status === "rejected")) {
-    return "rejected";
-  }
-
-  if (statuses.some((status) => status === "approved")) {
-    return "partially_approved";
-  }
-
-  return "draft";
 }
 
 async function writeProposalSet(
@@ -779,6 +784,27 @@ async function writeFrontmatterStatus(
     status,
   });
   await fs.writeFile(filePath, next, "utf8");
+}
+
+async function readOptionalFile(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function restoreTargetArtifact(filePath: string, content: string | null): Promise<void> {
+  if (content === null) {
+    await fs.rm(filePath, { force: true });
+    return;
+  }
+
+  await fs.writeFile(filePath, content, "utf8");
 }
 
 function nextIdentifier(existingIds: string[], prefix: string): string {
