@@ -107,6 +107,24 @@ describe("server routes", () => {
     ]);
   });
 
+  it("includes repository state in the status payload", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createApp(repo.rootDir);
+
+    const response = await request(app).get("/api/status");
+
+    expect(response.status).toBe(200);
+    expect(response.body.repository_state).toEqual({
+      available: false,
+      branch: null,
+      head: null,
+      dirty_paths: [],
+      is_dirty: false,
+      is_main_branch: false,
+    });
+  });
+
   it("creates and loads proposal sets through the api", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);

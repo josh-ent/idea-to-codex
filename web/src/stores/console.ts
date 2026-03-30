@@ -17,6 +17,14 @@ export interface TraceLink {
 }
 
 export interface StatusPayload {
+  repository_state: {
+    available: boolean;
+    branch: string | null;
+    head: string | null;
+    dirty_paths: string[];
+    is_dirty: boolean;
+    is_main_branch: boolean;
+  };
   validation: {
     rootFiles: Array<{ path: string; exists: boolean }>;
     directories: Array<{ path: string; exists: boolean }>;

@@ -149,6 +149,8 @@ describe("package generation", () => {
 
     const result = await generatePackage(repo.rootDir, "execution", "TRANCHE-001", false);
 
+    expect(result.content).toContain("# Execution Conduct");
+    expect(result.content).toContain("Make frequent, sensible, atomic commits at meaningful checkpoints.");
     expect(result.content).toContain("# Validation Requirements");
     expect(result.content).toContain("# Review Triggers");
     expect(result.content).toContain("# Definition Of Done");

@@ -8,6 +8,7 @@ required_sections:
   - Locked Decisions
   - Active Assumptions
   - Constraints
+  - Execution Conduct
   - Validation Requirements
   - Review Triggers
   - Definition Of Done
@@ -41,6 +42,10 @@ target_consumer: Codex
 # Constraints
 
 <!-- List coding, architecture, and governance constraints. -->
+
+# Execution Conduct
+
+<!-- Require branch or worktree use, sensible checkpoint commits, clean handoff state, and concise git evidence in progress updates. -->
 
 # Validation Requirements
 

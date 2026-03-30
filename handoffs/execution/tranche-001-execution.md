@@ -59,6 +59,14 @@ Establish the durable file contract and backend logic required to validate artef
 - Prefer the smallest durable implementation that proves the workflow.
 - Do not let UI work outrun the repository contract.
 
+# Execution Conduct
+
+- Work on a branch or worktree rather than accumulating long-running implementation changes in shared state.
+- Make frequent, sensible, atomic commits at meaningful checkpoints.
+- Do not allow long-running dirty state to accumulate.
+- Report branch name, latest commit SHA, changed files, and checks run in progress updates.
+- Leave the repository in a committed state before handing the tranche back for review.
+
 # Validation Requirements
 
 - Run repository validation.

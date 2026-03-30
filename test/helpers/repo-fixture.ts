@@ -356,6 +356,7 @@ export function buildHandoffRecord(input?: {
           section("Locked Decisions", "- DEC-001"),
           section("Active Assumptions", "- A-001"),
           section("Constraints", "- Keep it small."),
+          section("Execution Conduct", "- Use a branch.\n- Make checkpoint commits."),
           section("Validation Requirements", "- Run fixture validation."),
           section("Review Triggers", "- Review at tranche end."),
           section("Definition Of Done", "- Execution done."),

@@ -80,6 +80,7 @@ export const executionTemplateSections = [
   "Locked Decisions",
   "Active Assumptions",
   "Constraints",
+  "Execution Conduct",
   "Validation Requirements",
   "Review Triggers",
   "Definition Of Done",
@@ -97,6 +98,14 @@ export const defaultValidationChecks = [
   "Run repository validation.",
   "Run automated tests.",
   "Keep glossary, data dictionary, decisions, and tranche references aligned.",
+] as const;
+
+export const defaultExecutionConduct = [
+  "Work on a branch or worktree rather than accumulating long-running implementation changes in shared state.",
+  "Make frequent, sensible, atomic commits at meaningful checkpoints.",
+  "Do not allow long-running dirty state to accumulate.",
+  "Report branch name, latest commit SHA, changed files, and checks run in progress updates.",
+  "Leave the repository in a committed state before handing the tranche back for review.",
 ] as const;
 
 export const baselineTemplates = [
@@ -306,6 +315,7 @@ required_sections:
   - Locked Decisions
   - Active Assumptions
   - Constraints
+  - Execution Conduct
   - Validation Requirements
   - Review Triggers
   - Definition Of Done
@@ -325,6 +335,8 @@ target_consumer: Codex
 # Active Assumptions
 
 # Constraints
+
+# Execution Conduct
 
 # Validation Requirements
 

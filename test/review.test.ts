@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import { generateReview } from "../src/modules/governance/review.js";
@@ -199,6 +201,34 @@ describe("review checkpoints", () => {
     );
     expect(review.content).toContain(
       "Replace placeholder workflow values with concrete Actor, Use Case, Goal, and Constraint wording.",
+    );
+  });
+
+  it("reports execution conduct drift when the repository is dirty", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    await generatePackage(repo.rootDir, "plan", "TRANCHE-001", true);
+    await generatePackage(repo.rootDir, "execution", "TRANCHE-001", true);
+
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo.rootDir });
+    execFileSync("git", ["config", "user.name", "Fixture User"], { cwd: repo.rootDir });
+    execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: repo.rootDir });
+    execFileSync("git", ["add", "."], { cwd: repo.rootDir });
+    execFileSync("git", ["commit", "-m", "Fixture baseline"], { cwd: repo.rootDir });
+    await repo.write("README.md", "# Fixture\n\nDirty change.\n");
+
+    const review = await generateReview(repo.rootDir, "TRANCHE-001", false);
+
+    expect(review.record.status).toBe("attention_required");
+    expect(review.content).toContain("execution conduct drift detected");
+    expect(review.content).toContain("Repository branch at review time: main.");
+    expect(review.content).toContain("Repository dirty at review time: yes.");
+    expect(review.content).toContain("Repository has uncommitted changes: README.md.");
+    expect(review.content).toContain(
+      "Repository is dirty on main; execution conduct requires branch or worktree isolation.",
+    );
+    expect(review.content).toContain(
+      "Checkpoint the current repository changes in a commit before treating execution as review-ready.",
     );
   });
 

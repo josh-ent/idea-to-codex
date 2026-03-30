@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { getRepositoryState } from "../artifacts/git.js";
 import {
   collectValidationErrors,
   loadTranche,
@@ -36,7 +37,8 @@ export async function generateReview(
   const validation = await validateRepository(rootDir);
   const trancheRecord = await loadTranche(rootDir, trancheId);
   const tranche = trancheRecord.frontmatter!;
-  const review = buildReviewRecord(validation, tranche);
+  const repositoryState = await getRepositoryState(rootDir);
+  const review = buildReviewRecord(validation, tranche, repositoryState);
 
   if (persist) {
     const absolutePath = path.join(rootDir, review.relativePath);
@@ -50,6 +52,7 @@ export async function generateReview(
 function buildReviewRecord(
   validation: RepositoryValidation,
   tranche: NonNullable<Awaited<ReturnType<typeof loadTranche>>["frontmatter"]>,
+  repositoryState: Awaited<ReturnType<typeof getRepositoryState>>,
 ): GeneratedReview {
   const relatedDecisions = validation.decisions
     .filter((record) => record.frontmatter && record.errors.length === 0)
@@ -95,6 +98,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext: packagesMissingWorkflowContext.length,
     workflowPlaceholderFields: workflowPlaceholderFields.length,
+    hasExecutionConductDrift: repositoryState.available && repositoryState.is_dirty,
   });
   const findings = buildFindings({
     validationErrors,
@@ -106,6 +110,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext,
     workflowPlaceholderFields,
+    repositoryState,
   });
   const recommendedActions = buildRecommendedActions({
     tranche,
@@ -117,6 +122,7 @@ function buildReviewRecord(
     missingWorkflowFields,
     packagesMissingWorkflowContext,
     workflowPlaceholderFields,
+    repositoryState,
   });
   const status =
     validationErrors.length > 0 || detectedSignals.length > 0
@@ -150,6 +156,7 @@ function buildReviewRecord(
     `- Trigger reason: ${tranche.review_trigger}.`,
     `- Tranche status at review time: ${tranche.status}.`,
     `- Acceptance status at review time: ${tranche.acceptance_status}.`,
+    ...formatRepositoryState(repositoryState),
     "",
     "# Package Coverage",
     "",
@@ -206,6 +213,7 @@ function detectDriftSignals(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: number;
   workflowPlaceholderFields: number;
+  hasExecutionConductDrift: boolean;
 }): string[] {
   const signals: string[] = [];
 
@@ -247,6 +255,10 @@ function detectDriftSignals(input: {
     signals.push(driftSignals[6]);
   }
 
+  if (input.hasExecutionConductDrift) {
+    signals.push(driftSignals[7]);
+  }
+
   return unique(signals);
 }
 
@@ -259,6 +271,7 @@ function buildFindings(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
   workflowPlaceholderFields: string[];
+  repositoryState: Awaited<ReturnType<typeof getRepositoryState>>;
 }): string[] {
   const findings: string[] = [];
 
@@ -306,6 +319,20 @@ function buildFindings(input: {
     );
   }
 
+  if (input.repositoryState.available && input.repositoryState.is_dirty) {
+    findings.push(
+      `Repository has uncommitted changes: ${input.repositoryState.dirty_paths.join(", ")}.`,
+    );
+  }
+
+  if (
+    input.repositoryState.available &&
+    input.repositoryState.is_dirty &&
+    input.repositoryState.is_main_branch
+  ) {
+    findings.push("Repository is dirty on main; execution conduct requires branch or worktree isolation.");
+  }
+
   return findings.length > 0 ? findings : ["No durable drift findings detected."];
 }
 
@@ -319,6 +346,7 @@ function buildRecommendedActions(input: {
   missingWorkflowFields: string[];
   packagesMissingWorkflowContext: RepositoryValidation["planPackages"];
   workflowPlaceholderFields: string[];
+  repositoryState: Awaited<ReturnType<typeof getRepositoryState>>;
 }): string[] {
   const actions: string[] = [];
 
@@ -354,6 +382,18 @@ function buildRecommendedActions(input: {
     actions.push("Replace placeholder workflow values with concrete Actor, Use Case, Goal, and Constraint wording.");
   }
 
+  if (input.repositoryState.available && input.repositoryState.is_dirty) {
+    actions.push("Checkpoint the current repository changes in a commit before treating execution as review-ready.");
+  }
+
+  if (
+    input.repositoryState.available &&
+    input.repositoryState.is_dirty &&
+    input.repositoryState.is_main_branch
+  ) {
+    actions.push("Move active implementation work onto a branch or worktree instead of leaving dirty state on main.");
+  }
+
   return actions.length > 0
     ? actions
     : ["Keep the current tranche state and repository truth as-is."];
@@ -370,6 +410,20 @@ function packageContainsWorkflowContext(
   }
 
   return workflowContextLines(workflowContext).every((line) => workflowSection.includes(line));
+}
+
+function formatRepositoryState(
+  repositoryState: Awaited<ReturnType<typeof getRepositoryState>>,
+): string[] {
+  if (!repositoryState.available) {
+    return ["- Repository state at review time: unavailable."];
+  }
+
+  return [
+    `- Repository branch at review time: ${repositoryState.branch ?? "detached"}.`,
+    `- Repository head at review time: ${repositoryState.head ?? "unknown"}.`,
+    `- Repository dirty at review time: ${repositoryState.is_dirty ? "yes" : "no"}.`,
+  ];
 }
 
 function formatInlineList(values: string[]): string {

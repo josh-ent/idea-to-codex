@@ -64,6 +64,22 @@ onMounted(() => {
                 <span class="metric-label">Proposal Sets</span>
                 <strong>{{ store.status?.validation.proposalSets.length ?? 0 }}</strong>
               </div>
+              <div>
+                <span class="metric-label">Branch</span>
+                <strong>{{ store.status?.repository_state.branch ?? "n/a" }}</strong>
+              </div>
+              <div>
+                <span class="metric-label">Repo State</span>
+                <strong>
+                  {{
+                    store.status?.repository_state.available
+                      ? store.status?.repository_state.is_dirty
+                        ? "Dirty"
+                        : "Clean"
+                      : "Unavailable"
+                  }}
+                </strong>
+              </div>
             </div>
           </template>
         </Card>
@@ -92,6 +108,29 @@ onMounted(() => {
           </div>
 
           <div class="status-columns">
+            <div>
+              <h3>Repository State</h3>
+              <ul class="bullet-list">
+                <li v-if="store.status?.repository_state.available">
+                  Branch: {{ store.status?.repository_state.branch ?? "detached" }}
+                </li>
+                <li v-if="store.status?.repository_state.available">
+                  Head: {{ store.status?.repository_state.head ?? "unknown" }}
+                </li>
+                <li v-if="store.status?.repository_state.available">
+                  Dirty files: {{ store.status?.repository_state.dirty_paths.length }}
+                </li>
+                <li
+                  v-for="path in store.status?.repository_state.dirty_paths ?? []"
+                  :key="path"
+                >
+                  {{ path }}
+                </li>
+                <li v-if="store.status && !store.status.repository_state.available">
+                  Repository state unavailable.
+                </li>
+              </ul>
+            </div>
             <div>
               <h3>Errors</h3>
               <ul class="bullet-list">

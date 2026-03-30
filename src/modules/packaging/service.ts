@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   defaultConstraints,
+  defaultExecutionConduct,
   defaultValidationChecks,
 } from "../artifacts/contracts.js";
 import {
@@ -187,6 +188,10 @@ function buildPackageMarkdown(input: {
   ];
 
   const executionSections = [
+    "# Execution Conduct",
+    "",
+    ...defaultExecutionConduct.map((item) => `- ${item}`),
+    "",
     "# Validation Requirements",
     "",
     ...[...defaultValidationChecks, ...input.acceptanceCriteria].map(

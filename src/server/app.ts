@@ -2,6 +2,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 
+import { getRepositoryState } from "../modules/artifacts/git.js";
 import {
   bootstrapRepository,
   collectValidationErrors,
@@ -33,8 +34,10 @@ export function createApp(rootDir: string) {
   app.get("/api/status", async (_request, response, next) => {
     try {
       const validation = await validateRepository(rootDir);
+      const repositoryState = await getRepositoryState(rootDir);
       response.json({
         validation,
+        repository_state: repositoryState,
         errors: collectValidationErrors(validation),
       });
     } catch (error) {

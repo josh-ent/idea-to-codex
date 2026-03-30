@@ -574,6 +574,6 @@ Starting from only `PROJECT_AIMS.md`, the system must be able to:
 
 ## 19. Immediate Next Actions
 
-1. Build `TRANCHE-007`: strengthen cross-record validation so proposal approval cannot silently increase glossary, workflow-context, or decision drift.
+1. Build `TRANCHE-008`: strengthen cross-record validation so proposal approval cannot silently increase glossary, workflow-context, or decision drift.
 2. Keep the translation layer narrow so it proposes repo changes without becoming a chat supervisor.
 3. Extend review quality only where it materially improves drift detection rather than adding paperwork.

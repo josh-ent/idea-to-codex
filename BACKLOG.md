@@ -12,10 +12,11 @@
 - `TRANCHE-004`: Review checkpoint automation and stronger drift detection.
 - `TRANCHE-005`: Approval-gated durable truth updates from intake and review outcomes.
 - `TRANCHE-006`: Structured workflow critique with Actor and Use Case context.
+- `TRANCHE-007`: Execution conduct contract and repository state visibility.
 
 ## Next candidate tranches
 
-- `TRANCHE-007`: Stronger cross-record validation and package quality checks over proposal-era repo truth.
+- `TRANCHE-008`: Stronger cross-record validation and package quality checks over proposal-era repo truth.
 
 ## Deferred
 
