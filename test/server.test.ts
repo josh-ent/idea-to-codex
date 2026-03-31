@@ -3,19 +3,14 @@ import request from "supertest";
 import path from "node:path";
 
 import { createApp, type ServerAppOptions } from "../src/server/app.js";
-import { analyzeRequest } from "../src/modules/intake/service.js";
 import {
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
-import {
-  intakePromptVersion,
-  intakeSchemaVersion,
-  type IntakeAnalysis,
-} from "../src/modules/intake/contract.js";
 import { recordLlmUsage } from "../src/runtime/logging.js";
 import { createStubIntakeClient } from "./helpers/intake-stub.js";
+import { createStubIntakeSessionClient } from "./helpers/intake-session-stub.js";
 
 const repos: FixtureRepo[] = [];
 
@@ -28,15 +23,12 @@ function track(repo: FixtureRepo): FixtureRepo {
   return repo;
 }
 
-function cloneAnalysis(analysis: IntakeAnalysis): IntakeAnalysis {
-  return JSON.parse(JSON.stringify(analysis)) as IntakeAnalysis;
-}
-
 function createManagedProjectApp(repo: FixtureRepo) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
     fallbackActiveProjectRoot: repo.rootDir,
     intakeClient: createStubIntakeClient(),
+    intakeSessionClient: createStubIntakeSessionClient(),
   });
 }
 
@@ -44,6 +36,7 @@ function createWorkspaceApp(repo: FixtureRepo, overrides: ServerAppOptions = {})
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
     intakeClient: createStubIntakeClient(),
+    intakeSessionClient: createStubIntakeSessionClient(),
     ...overrides,
   });
 }
@@ -265,50 +258,187 @@ describe("server routes", () => {
     expect(response.body.path).toBeNull();
   });
 
-  it("rejects intake analysis when no active project is selected", async () => {
+  it("rejects intake session creation when no active project is selected", async () => {
     const repo = track(await createFixtureRepo());
     const app = createWorkspaceApp(repo);
 
-    const response = await request(app).post("/api/intake/analyze").send({
-      request: "Rename the glossary term.",
+    const response = await request(app).post("/api/intake/sessions").send({
+      request_text: "Rename the glossary term.",
     });
 
     expect(response.status).toBe(409);
     expect(response.body.error_code).toBe("active_project_missing");
   });
 
-  it("returns the empty/default intake analysis for missing or non-string request bodies", async () => {
+  it("creates and reloads an intake session through the api", async () => {
     const repo = track(await createFixtureRepo());
     const app = createManagedProjectApp(repo);
 
-    const missingResponse = await request(app).post("/api/intake/analyze").send({});
-    expect(missingResponse.status).toBe(200);
-    expect(missingResponse.body.summary).toBe("No request provided.");
-    expect(missingResponse.body.material_questions[0]?.type).toBe("bounded_change");
-
-    const nonStringResponse = await request(app)
-      .post("/api/intake/analyze")
-      .send({ request: 42 });
-    expect(nonStringResponse.status).toBe(200);
-    expect(nonStringResponse.body.summary).toBe("No request provided.");
-    expect(nonStringResponse.body.material_questions[0]?.type).toBe("bounded_change");
-  });
-
-  it("returns the expanded workflow intake question set through the api", async () => {
-    const repo = track(await createFixtureRepo());
-    const app = createManagedProjectApp(repo);
-
-    const response = await request(app).post("/api/intake/analyze").send({
-      request: "Improve the operator UI workflow for release review.",
+    const createResponse = await request(app).post("/api/intake/sessions").send({
+      request_text: "Clarify the billing control-room refresh.",
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body.material_questions.map((question: { type: string }) => question.type)).toEqual([
-      "workflow_actor",
-      "workflow_use_case",
-      "workflow_goal",
-      "workflow_constraints",
-    ]);
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.body.session.status).toBe("active");
+    expect(createResponse.body.request_text).toBe("Clarify the billing control-room refresh.");
+    expect(createResponse.body.current_brief_entries[0]?.entry_type).toBe("problem_statement");
+
+    const activeResponse = await request(app).get("/api/intake/active");
+    expect(activeResponse.status).toBe(200);
+    expect(activeResponse.body.session.id).toBe(createResponse.body.session.id);
+
+    const detailResponse = await request(app).get(
+      `/api/intake/sessions/${createResponse.body.session.id}`,
+    );
+    expect(detailResponse.status).toBe(200);
+    expect(detailResponse.body.request_text).toBe("Clarify the billing control-room refresh.");
+  });
+
+  it("continues and finalizes intake sessions through the api", async () => {
+    const repo = track(await createFixtureRepo());
+    const app = createWorkspaceApp(repo, {
+      fallbackActiveProjectRoot: repo.rootDir,
+      intakeSessionClient: createStubIntakeSessionClient((input) => {
+        const priorQuestionId = /ID: (QUESTION-[^\n]+)/.exec(input.current_questions_markdown)?.[1];
+
+        if (input.phase === "initial") {
+          return {
+            brief_entries: [
+              {
+                entry_type: "problem_statement",
+                rendered_markdown: "Tighten the release brief.",
+                value_text: "Tighten the release brief.",
+                provenance: [
+                  {
+                    provenance_type: "operator_provided",
+                    label: "Operator request",
+                    detail_json: {},
+                  },
+                ],
+              },
+            ],
+            question_directives: [
+              {
+                directive: "create_new",
+                prompt: "Who is the primary operator for this release workflow?",
+                rationale_markdown: "Actor clarity changes the brief.",
+                importance: "high",
+                tags: ["stakeholders"],
+              },
+            ],
+          };
+        }
+
+        if (input.phase === "continue") {
+          return {
+            brief_entries: [
+              {
+                entry_type: "elevator_pitch",
+                rendered_markdown: "Refine the release workflow for the primary operator.",
+                value_text: "Refine the release workflow for the primary operator.",
+                provenance: [
+                  {
+                    provenance_type: "llm_inferred",
+                    label: "Refined brief",
+                    detail_json: {},
+                  },
+                ],
+              },
+            ],
+            question_directives: priorQuestionId
+              ? [
+                  {
+                    directive: "retain_existing",
+                    prior_question_id: priorQuestionId,
+                    prompt: "Who is the primary operator for this release workflow?",
+                    rationale_markdown: "Still needed for the brief.",
+                    importance: "high",
+                    tags: ["stakeholders"],
+                    carry_forward_answer: true,
+                  },
+                ]
+              : [],
+          };
+        }
+
+        return {
+          brief_entries: [
+            {
+              entry_type: "recommendations",
+              rendered_markdown: "Proceed with the clarified operator-facing workflow brief.",
+              value_text: "Proceed with the clarified operator-facing workflow brief.",
+              provenance: [
+                {
+                  provenance_type: "llm_inferred",
+                  label: "Final recommendation",
+                  detail_json: {},
+                },
+              ],
+            },
+          ],
+          question_directives: [],
+        };
+      }),
+    });
+
+    const createResponse = await request(app).post("/api/intake/sessions").send({
+      request_text: "Clarify the release workflow brief.",
+    });
+    expect(createResponse.status).toBe(201);
+
+    const questionId = createResponse.body.questions[0]?.id;
+    expect(questionId).toBeTruthy();
+
+    const continueResponse = await request(app)
+      .post(`/api/intake/sessions/${createResponse.body.session.id}/continue`)
+      .send({
+        expected_session_revision: createResponse.body.session_revision,
+        operator_notes: "Keep going.",
+        question_answers: {
+          [questionId]: "Release managers",
+        },
+      });
+
+    expect(continueResponse.status).toBe(200);
+    expect(continueResponse.body.session.status).toBe("active");
+    expect(continueResponse.body.questions[0]?.answer_text).toBe("Release managers");
+
+    const finalizeResponse = await request(app)
+      .post(`/api/intake/sessions/${createResponse.body.session.id}/finalize`)
+      .send({
+        expected_session_revision: continueResponse.body.session_revision,
+        finalize_note: "This brief is strong enough. Finalize it.",
+      });
+
+    expect(finalizeResponse.status).toBe(200);
+    expect(finalizeResponse.body.session.status).toBe("finalized");
+    expect(finalizeResponse.body.current_brief.status).toBe("final");
+  });
+
+  it("rejects continued intake after finalization", async () => {
+    const repo = track(await createFixtureRepo());
+    const app = createManagedProjectApp(repo);
+    const createResponse = await request(app).post("/api/intake/sessions").send({
+      request_text: "Prepare a brief.",
+    });
+    const finalizeResponse = await request(app)
+      .post(`/api/intake/sessions/${createResponse.body.session.id}/finalize`)
+      .send({
+        expected_session_revision: createResponse.body.session_revision,
+        finalize_note: "Finalize now.",
+      });
+
+    expect(finalizeResponse.status).toBe(200);
+
+    const continueResponse = await request(app)
+      .post(`/api/intake/sessions/${createResponse.body.session.id}/continue`)
+      .send({
+        expected_session_revision: finalizeResponse.body.session_revision,
+        operator_notes: "Try to continue anyway.",
+      });
+
+    expect(continueResponse.status).toBe(409);
+    expect(continueResponse.body.error_code).toBe("intake_session_not_active");
   });
 
   it("includes repository state in the status payload", async () => {
@@ -330,140 +460,56 @@ describe("server routes", () => {
     });
   });
 
-  it("creates and loads proposal sets through the api", async () => {
-    const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const app = createManagedProjectApp(repo);
-
-    const createResponse = await request(app).post("/api/proposals/intake").send({
-      request: "Tidy the current fixture output.",
-      answers: {},
-    });
-
-    expect(createResponse.status).toBe(201);
-    expect(createResponse.body.record.source_type).toBe("intake");
-
-    const listResponse = await request(app).get("/api/proposals");
-    expect(listResponse.status).toBe(200);
-    expect(listResponse.body[0]?.id).toBe(createResponse.body.id);
-
-    const detailResponse = await request(app).get(`/api/proposals/${createResponse.body.id}`);
-    expect(detailResponse.status).toBe(200);
-    expect(detailResponse.body.drafts.length).toBeGreaterThan(0);
-  });
-
-  it("rejects intake proposal generation when blocking answers are missing", async () => {
-    const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const app = createManagedProjectApp(repo);
-
-    const response = await request(app).post("/api/proposals/intake").send({
-      request: "Rename the glossary term and change the backend architecture.",
-      answers: {},
-    });
-
-    expect(response.status).toBe(409);
-    expect(response.body).toEqual({
-      details: {
-        question_ids: ["terminology_integrity", "architecture_direction"],
-      },
-      error_code: "blocking_questions_unanswered",
-      message:
-        "Unanswered blocking material questions: terminology_integrity, architecture_direction",
-      retryable: false,
-    });
-  });
-
-  it("returns unknown answer ids through the same structured error envelope", async () => {
+  it("blocks proposal generation from intake sessions until tranche 2 lands", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
     const app = createManagedProjectApp(repo);
 
     const response = await request(app).post("/api/proposals/intake").send({
       request: "Tidy the current fixture output.",
-      answers: {
-        "Q-001": "This key should be rejected.",
-      },
+      answers: {},
     });
 
     expect(response.status).toBe(409);
-    expect(response.body).toEqual({
-      details: {
-        question_ids: ["Q-001"],
-      },
-      error_code: "unknown_answer_ids",
-      message: "Unknown material question ids: Q-001",
-      retryable: false,
-    });
-  });
-
-  it("returns schema and prompt mismatch codes through the public api", async () => {
-    const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const app = createManagedProjectApp(repo);
-    const analysis = await analyzeRequest(repo.rootDir, "Tidy the current fixture output.", {
-      client: createStubIntakeClient(),
-    });
-
-    const schemaMismatch = cloneAnalysis(analysis);
-    schemaMismatch.analysis_metadata.schema_version = intakeSchemaVersion + 1;
-    const schemaResponse = await request(app).post("/api/proposals/intake").send({
-      request: "Tidy the current fixture output.",
-      answers: {},
-      analysis: schemaMismatch,
-    });
-
-    expect(schemaResponse.status).toBe(409);
-    expect(schemaResponse.body).toEqual({
-      error_code: "analysis_schema_version_mismatch",
-      message: "The supplied intake analysis uses an unsupported schema version.",
-      retryable: false,
-    });
-
-    const promptMismatch = cloneAnalysis(analysis);
-    promptMismatch.analysis_metadata.prompt_version = `${intakePromptVersion}-different`;
-    const promptResponse = await request(app).post("/api/proposals/intake").send({
-      request: "Tidy the current fixture output.",
-      answers: {},
-      analysis: promptMismatch,
-    });
-
-    expect(promptResponse.status).toBe(409);
-    expect(promptResponse.body).toEqual({
-      error_code: "analysis_prompt_version_mismatch",
-      message: "The supplied intake analysis uses a different prompt version.",
-      retryable: false,
-    });
+    expect(response.body.error_code).toBe("proposal_intake_sessions_unavailable");
   });
 
   it("approves and rejects proposal drafts through the api", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
-    const app = createManagedProjectApp(repo);
-    const createResponse = await request(app).post("/api/proposals/intake").send({
-      request: "Tidy the current fixture output.",
-      answers: {},
-    });
-    const backlogDraft = createResponse.body.drafts.find(
-      (draft: { record: { target_artifact: string } }) =>
-        draft.record.target_artifact === "BACKLOG.md",
-    );
-    const trancheDraft = createResponse.body.drafts.find(
-      (draft: { record: { target_artifact: string } }) =>
-        String(draft.record.target_artifact).startsWith("docs/tranches/"),
-    );
+    const priorFlag = process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1;
 
-    const approveResponse = await request(app).post(
-      `/api/proposals/${backlogDraft.id}/approve`,
-    );
-    const rejectResponse = await request(app).post(
-      `/api/proposals/${trancheDraft.id}/reject`,
-    );
+    process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1 = "false";
 
-    expect(approveResponse.status).toBe(200);
-    expect(approveResponse.body.status).toBe("approved");
-    expect(rejectResponse.status).toBe(200);
-    expect(rejectResponse.body.status).toBe("rejected");
+    try {
+      const app = createManagedProjectApp(repo);
+      const createResponse = await request(app).post("/api/proposals/intake").send({
+        request: "Tidy the current fixture output.",
+        answers: {},
+      });
+      const [backlogDraft, trancheDraft] = createResponse.body.drafts;
+
+      expect(backlogDraft).toBeDefined();
+      expect(trancheDraft).toBeDefined();
+
+      const approveResponse = await request(app).post(
+        `/api/proposals/${backlogDraft.id}/approve`,
+      );
+      const rejectResponse = await request(app).post(
+        `/api/proposals/${trancheDraft.id}/reject`,
+      );
+
+      expect(approveResponse.status).toBe(200);
+      expect(approveResponse.body.status).toBe("approved");
+      expect(rejectResponse.status).toBe(200);
+      expect(rejectResponse.body.status).toBe("rejected");
+    } finally {
+      if (priorFlag === undefined) {
+        delete process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1;
+      } else {
+        process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1 = priorFlag;
+      }
+    }
   });
 
   it("returns a 500 for unknown proposal ids", async () => {

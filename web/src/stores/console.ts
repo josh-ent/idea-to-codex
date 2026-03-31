@@ -622,11 +622,8 @@ export const useConsoleStore = defineStore("console", () => {
   );
 
   const activeProject = computed(() => status.value?.project.active_project ?? null);
-
   const knownProjects = computed(() => status.value?.project.known_projects ?? []);
-
   const validationIssueCount = computed(() => status.value?.errors.length ?? 0);
-
   const openQuestionCount = computed(
     () => status.value?.validation.openQuestions.length ?? 0,
   );

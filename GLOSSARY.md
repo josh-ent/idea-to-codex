@@ -117,6 +117,33 @@
 - Related entities: `Log Event`, `LLM Usage Record`, `Log Viewer`
 - Notes / usage constraints: The `Studio Persistence Store` is not a project-truth store. Repository artefacts remain canonical.
 
+## Intake Session
+
+- Canonical name: `Intake Session`
+- Allowed aliases: `intake workflow`
+- Definition: The project-scoped, branch/worktree-scoped Studio workflow that iteratively builds and finalises one `Intake Brief`.
+- Disallowed or deprecated synonyms: `intake analysis run`, `one-shot intake`
+- Related entities: `Intake Brief`, `Material Question`, `Studio Persistence Store`
+- Notes / usage constraints: `Intake Session` state is durable Studio workflow truth, not repository truth. One active session is allowed per project scope key.
+
+## Intake Brief
+
+- Canonical name: `Intake Brief`
+- Allowed aliases: `brief`
+- Definition: The structured, provenance-aware project briefing output produced by an `Intake Session`.
+- Disallowed or deprecated synonyms: `bounded intake output`, `analysis blob`
+- Related entities: `Intake Session`, `Material Question`, `Proposal Set`
+- Notes / usage constraints: The `Intake Brief` is authoritative Studio workflow state until later approved proposal writes update repository truth.
+
+## Provenance Entry
+
+- Canonical name: `Provenance Entry`
+- Allowed aliases: `provenance record`
+- Definition: An immutable structured record that attributes one brief entry or question version to operator input, repository context, research, or LLM inference.
+- Disallowed or deprecated synonyms: `markdown note`, `provenance blob`
+- Related entities: `Intake Brief`, `Material Question`, `Trace Link`
+- Notes / usage constraints: `Provenance Entry` records are authoritative. Any summary provenance shown in the UI must be derived from them.
+
 ## Actor
 
 - Canonical name: `Actor`

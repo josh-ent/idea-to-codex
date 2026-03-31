@@ -10,7 +10,7 @@ This document describes the current system structure.
 
 ## Current implementation shape
 
-- A Node backend owns managed-project selection, file-backed bootstrap, validation, model-backed intake analysis, review checkpoint generation, traceability, and package assembly.
+- A Node backend owns managed-project selection, file-backed bootstrap, validation, intake-session orchestration, review checkpoint generation, traceability, and package assembly.
 - The backend also owns logging ingestion, the SQLite-backed `Studio Persistence Store`, and log query APIs.
 - The backend also owns project-scoped `LLM Usage Record` auditing for model calls made inside the product.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
@@ -23,15 +23,15 @@ This document describes the current system structure.
 
 - `artifacts`: repository paths, baseline templates, markdown record loading, and durable writes.
 - `governance`: drift signals, review triggers, review checkpoint generation, and placeholder detection for `Actor` / `Use Case` workflow critique.
-- `intake`: canonical request normalization, context loading, model-backed intake analysis, contract validation, and analysis reuse checks.
-- `llm`: the small OpenAI structured-output adapter used by intake analysis.
+- `intake`: intake-session contracts, prompt assets, session lifecycle, reconciliation, provenance, and durable `Intake Brief` state.
+- `llm`: the small OpenAI structured-output adapter used by intake sessions and other hosted reasoning calls.
 - `llm`: the small provider boundary for model calls and project-scoped usage auditing.
 - `packaging`: plan and execution package assembly from validated repo truth.
 - `logs`: query contract and service logic for persisted backend log events.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.
 - `traceability`: explicit links between tranches, decisions, packages, reviews, and affected artefacts.
-- `server`: HTTP routes for project selection, status, bootstrap, package generation, intake analysis, review checkpoints, and proposal workflows.
-- `ui`: the operator console for status inspection, intake analysis, proposal review, package generation, and checkpoint generation.
+- `server`: HTTP routes for project selection, status, bootstrap, package generation, intake sessions, review checkpoints, and proposal workflows.
+- `ui`: the operator console for status inspection, intake sessions, proposal review, package generation, and checkpoint generation.
 - `logs-web`: the dedicated log viewer frontend for read-only log inspection and search.
 
 ## Durable file contract
@@ -39,15 +39,15 @@ This document describes the current system structure.
 - Top-level documents define stable project truth such as architecture, glossary, assumptions, risks, and backlog.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
-- Intake prompt assets live under `prompts/intake/` and are loaded by the backend at runtime; the application code owns normalization and validation, not embedded prompt prose.
-- The `Studio Persistence Store` is used only for observability records such as logs and `LLM Usage Record` auditing, and is not a project-truth store.
+- Intake session prompt assets live under `prompts/intake/session/` and are loaded by the backend at runtime; the application code owns lifecycle, reconciliation, and validation rather than embedded prompt prose.
+- The `Studio Persistence Store` is used for durable Studio metadata such as `Log Event`, `LLM Usage Record`, `Intake Session`, `Intake Brief`, and related provenance records. It is not a project-truth store.
 
 ## Canonical loop
 
 1. Read repository truth.
 2. Validate required artefacts and record schemas.
 3. Bootstrap missing baseline files when needed.
-4. Analyze intake or review context and generate durable proposal drafts for supported meaning-bearing artefacts.
+4. Run an intake session or review context and generate durable proposal drafts for supported meaning-bearing artefacts.
 5. Approve or reject proposal drafts per artefact.
 6. Select a tranche and derive linked decisions, assumptions, and constraints.
 7. Generate a plan or execution package snapshot.

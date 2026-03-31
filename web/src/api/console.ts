@@ -27,6 +27,7 @@ export interface ProjectWorkspacePayload {
 
 import type { StudioStatusFeatureFlags } from "../../../src/modules/intake/session-contract.js";
 import type { ProjectLlmUsageSummary } from "../../../src/modules/llm/contract.js";
+import type { SessionStructuredErrorPayload as StructuredErrorPayload } from "../../../src/modules/intake/session-contract.js";
 export type {
   IntakeBriefEntry,
   IntakeBriefVersion,
@@ -35,7 +36,6 @@ export type {
   IntakeSessionDetail,
   IntakeSessionPayload,
   IntakeSessionStatus,
-  SessionStructuredErrorPayload as StructuredErrorPayload,
   StudioStatusFeatureFlags,
 } from "../../../src/modules/intake/session-contract.js";
 

@@ -1,6 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdirSync } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import Database from "better-sqlite3";
@@ -17,7 +15,11 @@ import {
   type LlmUsageRecord,
   type LlmUsageRecordInput,
 } from "../modules/llm/contract.js";
-import { persistenceDatabasePath } from "./state-paths.js";
+import {
+  getPersistenceDatabase,
+  getPersistenceDatabasePath,
+  initializePersistence,
+} from "./persistence.js";
 
 export type LogLevelName = LogEventLevel | "silent";
 export type LogFields = Record<string, unknown>;
@@ -89,7 +91,8 @@ export function generateRequestId(): string {
 }
 
 export function initializeLogging(options: LoggingOptions = {}): void {
-  const dbPath = persistenceDatabasePath(options.stateDir);
+  initializePersistence(options);
+  const dbPath = getPersistenceDatabasePath();
 
   if (loggingBackend?.dbPath === dbPath) {
     return;
@@ -264,10 +267,7 @@ class LoggingBackend {
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
-    mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma("journal_mode = WAL");
-    this.initializeSchema();
+    this.db = getPersistenceDatabase();
   }
 
   append(event: CanonicalLogEvent): LogEvent {
@@ -500,58 +500,6 @@ class LoggingBackend {
   close(): void {
     this.listeners.clear();
     this.db.close();
-  }
-
-  private initializeSchema(): void {
-    this.db.exec(
-      [
-        "CREATE TABLE IF NOT EXISTS log_events (",
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
-        "  occurred_at TEXT NOT NULL,",
-        "  level TEXT NOT NULL,",
-        "  scope TEXT NOT NULL,",
-        "  message TEXT NOT NULL,",
-        "  request_id TEXT,",
-        "  request_method TEXT,",
-        "  request_path TEXT,",
-        "  project_root TEXT,",
-        "  payload_json TEXT NOT NULL,",
-        "  payload_text TEXT NOT NULL",
-        ");",
-        "CREATE TABLE IF NOT EXISTS llm_usage_records (",
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
-        "  occurred_at TEXT NOT NULL,",
-        "  provider TEXT NOT NULL,",
-        "  lane TEXT NOT NULL,",
-        "  operation TEXT NOT NULL,",
-        "  configured_model TEXT NOT NULL,",
-        "  resolved_model TEXT,",
-        "  project_root TEXT NOT NULL,",
-        "  input_tokens INTEGER NOT NULL,",
-        "  output_tokens INTEGER NOT NULL,",
-        "  total_tokens INTEGER NOT NULL,",
-        "  request_log_event_id INTEGER,",
-        "  response_log_event_id INTEGER,",
-        "  metadata_json TEXT NOT NULL",
-        ");",
-        "CREATE VIRTUAL TABLE IF NOT EXISTS log_events_fts USING fts5(",
-        "  scope,",
-        "  message,",
-        "  request_id,",
-        "  request_path,",
-        "  project_root,",
-        "  payload_text",
-        ");",
-        "CREATE INDEX IF NOT EXISTS log_events_occurred_at_idx ON log_events (occurred_at);",
-        "CREATE INDEX IF NOT EXISTS log_events_level_idx ON log_events (level);",
-        "CREATE INDEX IF NOT EXISTS log_events_scope_idx ON log_events (scope);",
-        "CREATE INDEX IF NOT EXISTS log_events_request_id_idx ON log_events (request_id);",
-        "CREATE INDEX IF NOT EXISTS log_events_project_root_idx ON log_events (project_root);",
-        "CREATE INDEX IF NOT EXISTS llm_usage_records_provider_idx ON llm_usage_records (provider);",
-        "CREATE INDEX IF NOT EXISTS llm_usage_records_project_root_idx ON llm_usage_records (project_root);",
-        "CREATE INDEX IF NOT EXISTS llm_usage_records_occurred_at_idx ON llm_usage_records (occurred_at);",
-      ].join("\n"),
-    );
   }
 }
 

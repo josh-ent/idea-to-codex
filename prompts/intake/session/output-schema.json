@@ -1,0 +1,7 @@
+{
+  "response_format_name": "intake_session_turn",
+  "fields": {
+    "brief_entries": "brief_entry_array",
+    "question_directives": "question_directive_array"
+  }
+}

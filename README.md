@@ -46,8 +46,8 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
 - `npm run package:refresh -- <TRANCHE_ID>` regenerates and persists the plan and execution package set for a tranche.
 - `npm run review -- <TRANCHE_ID>` generates a persisted review checkpoint.
-- `npm run intake:analyze -- "<request>"` prints the canonical intake analysis contract for the current project root.
-- `npm run proposal:intake -- "<request>"` generates a persisted proposal set from intake analysis.
+- `npm run intake:analyze -- "<request>"` prints the legacy deterministic intake analysis contract used by the old CLI-only proposal path.
+- `npm run proposal:intake -- "<request>"` generates a persisted proposal set from the legacy deterministic intake path.
 - `npm run proposal:review -- <TRANCHE_ID>` generates a persisted proposal set from review findings.
 - `npm run proposal:approve -- <PROPOSAL_ID>` approves one proposal draft and writes its target artefact.
 - `npm run proposal:reject -- <PROPOSAL_ID>` rejects one proposal draft without mutating its target artefact.
@@ -71,16 +71,16 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - Override stderr formatting with `IDEA_TO_CODEX_LOG_FORMAT=pretty|json`.
 - Override the `Studio Persistence Store` path with `IDEA_TO_CODEX_PERSISTENCE_DB_PATH=/path/to/studio.sqlite`.
 
-## Intake analysis
+## Intake sessions
 
-- Intake analysis is now model-backed and uses the OpenAI Responses API with structured outputs.
-- Intake prompt assets live under `prompts/intake/` so the system prompt, user prompt template, structured output shape, and question registry are inspectable without digging through backend code.
-- The backend still owns the canonical schema, stable question ids, normalization rules, blocking flags, and metadata hashes.
+- The operator console now runs intake as an iterative, model-backed `Intake Session`.
+- Intake session prompt assets live under `prompts/intake/session/` so the system prompt, prompt template, and structured output shape are inspectable without digging through backend code.
+- The hosted ChatGPT/OpenAI lane synthesizes the brief and proposes question reconciliation directives; the backend remains authoritative for session lifecycle, question identity, answer carry-forward, lineage, persistence, and concurrency handling.
+- The durable output of intake is a structured `Intake Brief`, not a proposal draft and not repository truth.
+- `Provenance Entry` records remain the authoritative source for why a brief entry or question version exists; UI provenance summaries are derived from those records.
 - OpenAI intake calls are audited per canonical project root with token usage records in the `Studio Persistence Store`.
 - The usage audit shape is provider-based and already reserves `codex` as a separate accounting provider for future in-product Codex lanes.
-- `material_questions[].id` is the stable key used for answers and deterministic proposal generation.
-- `material_questions[].display_id` is presentation-only.
-- Intake analysis is advisory. Proposal drafts remain approval-gated before any target artefact changes.
+- Proposal generation from the new intake-session workflow is intentionally unavailable until the later proposal redesign tranche lands.
 - Configure the intake lane with `OPENAI_API_KEY`, optional `OPENAI_INTAKE_MODEL` or `OPENAI_BROAD_REASONING_MODEL`, and optional `OPENAI_RESPONSES_TIMEOUT_MS`.
 
 ## First use

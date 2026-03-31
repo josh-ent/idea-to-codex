@@ -42,7 +42,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
-- The repo now also has a Vue.js operator console, model-backed intake analysis with a canonical schema-v2 contract, and persisted review checkpoints.
+- The repo now also has a Vue.js operator console, model-backed intake sessions that produce a durable `Intake Brief`, and persisted review checkpoints.
 - The next meaningful gap is review-history and triage ergonomics now that the main review actions are exposed directly in the console.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
@@ -71,8 +71,8 @@ This platform improves inputs, preserves truth, and manages review discipline. I
 The platform must prove this exact loop before expanding:
 
 1. A human enters one vague but realistic project request.
-2. The system analyzes the request through the canonical intake pipeline and identifies affected artefacts.
-3. The system raises only the material questions needed to proceed.
+2. The system runs an intake session that forms a strong initial project brief.
+3. The system raises only the session-local questions needed to strengthen that brief.
 4. The resulting answers become:
    - one or more decisions;
    - explicit assumptions where needed;

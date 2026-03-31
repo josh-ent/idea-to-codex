@@ -47,26 +47,6 @@ function formatQuestionStatus(value: string): string {
 function formatQuestionId(questionId: string): string {
   return questionId.length > 12 ? questionId.slice(0, 12) : questionId;
 }
-
-function provenanceSeverity(value: string | null | undefined): "info" | "success" | "warn" | "secondary" {
-  if (!value) {
-    return "secondary";
-  }
-
-  if (value.includes("research_derived")) {
-    return "warn";
-  }
-
-  if (value.includes("repo_derived")) {
-    return "success";
-  }
-
-  if (value.includes("llm_inferred")) {
-    return "info";
-  }
-
-  return "secondary";
-}
 </script>
 
 <template>

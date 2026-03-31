@@ -86,7 +86,7 @@ function buildQuestion(id: string, index: number, answerText = "") {
     origin_turn_id: "TURN-001",
     current_prompt: `Prompt for ${id}.`,
     current_rationale_markdown: `Rationale for ${id}.`,
-    importance: index === 0 ? "high" : "medium",
+    importance: index === 0 ? ("high" as const) : ("medium" as const),
     tags: index === 0 ? ["scope", "risk"] : ["constraints"],
     status: answerText ? ("answered" as const) : ("open" as const),
     current_display_order: index + 1,
@@ -128,6 +128,7 @@ function buildSessionPayload(options: {
       finalized_at: null,
       abandoned_at: null,
     },
+    request_text: "Clarify the current intake brief.",
     current_brief: {
       id: briefVersionId,
       session_id: sessionId,
