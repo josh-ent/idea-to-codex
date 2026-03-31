@@ -1,4 +1,4 @@
-import { computed, ref, watch, type Ref } from "vue";
+import { computed, ref, type Ref } from "vue";
 import { defineStore } from "pinia";
 import {
   ApiError,
@@ -7,7 +7,7 @@ import {
   getJson,
   type OpenProjectPayload,
   postJson,
-  type IntakeAnalysis,
+  type IntakeSessionPayload,
   type PackagePayload,
   type PackageSetPayload,
   type ProposalMutationPayload,
@@ -33,7 +33,11 @@ export const useConsoleStore = defineStore("console", () => {
   const isRefreshingPackageSet = ref(false);
   const isGeneratingReview = ref(false);
   const isGeneratingProposal = ref(false);
-  const isAnalyzingIntake = ref(false);
+  const isLoadingIntakeSession = ref(false);
+  const isStartingIntakeSession = ref(false);
+  const isContinuingIntakeSession = ref(false);
+  const isFinalizingIntakeSession = ref(false);
+  const isAbandoningIntakeSession = ref(false);
   const activeProposalMutationId = ref("");
   const packageType = ref<"plan" | "execution">("plan");
   const selectedTrancheId = ref<string>("");
@@ -44,10 +48,10 @@ export const useConsoleStore = defineStore("console", () => {
   const newProjectPath = ref("");
   const existingProjectPath = ref("");
   const intakeRequest = ref("");
-  const intakeAnalysis = ref<IntakeAnalysis | null>(null);
-  const intakeAnswers = ref<Record<string, string>>({});
-  const intakeAnalysisStale = ref(false);
-  const lastAnalyzedRequest = ref("");
+  const intakeOperatorNotes = ref("");
+  const intakeFinalizeNote = ref("");
+  const intakeSession = ref<IntakeSessionPayload | null>(null);
+  const intakeQuestionAnswers = ref<Record<string, string>>({});
   const lastError = ref<string>("");
   const lastErrorCode = ref("");
   const lastErrorRetryable = ref(false);
@@ -274,53 +278,138 @@ export const useConsoleStore = defineStore("console", () => {
     });
   }
 
-  async function analyzeIntakeRequest() {
-    if (!intakeRequest.value.trim()) {
-      lastError.value = "Enter a request before running intake analysis.";
+  async function loadActiveIntakeSession(options: { clearError?: boolean } = {}) {
+    if (!status.value?.project.active_project || intakeSessionsEnabled.value === false) {
+      resetIntakeState();
       return;
     }
 
-    await runTask(isAnalyzingIntake, "intake analysis failed", async () => {
-      const priorAnswers = { ...intakeAnswers.value };
-      const analysis = await postJson<IntakeAnalysis>("/api/intake/analyze", {
-        request: intakeRequest.value.trim(),
+    isLoadingIntakeSession.value = true;
+
+    if (options.clearError !== false) {
+      lastError.value = "";
+    }
+
+    try {
+      const session = await getJson<IntakeSessionPayload | null>("/api/intake/active");
+      intakeSession.value = session;
+      intakeQuestionAnswers.value = readQuestionAnswers(session);
+      if (!session) {
+        intakeOperatorNotes.value = "";
+        intakeFinalizeNote.value = "";
+      }
+    } catch (error) {
+      setTaskError(error, "intake session request failed");
+    } finally {
+      isLoadingIntakeSession.value = false;
+    }
+  }
+
+  async function startIntakeSession() {
+    const requestText = intakeRequest.value.trim();
+
+    if (!requestText) {
+      lastError.value = "Enter a request before starting intake.";
+      return;
+    }
+
+    if (intakeSessionsEnabled.value === false) {
+      lastError.value = "Intake sessions are not available in this environment.";
+      return;
+    }
+
+    await runTask(isStartingIntakeSession, "intake session start failed", async () => {
+      const session = await postJson<IntakeSessionPayload>("/api/intake/sessions", {
+        request_text: requestText,
       });
-      intakeAnalysis.value = analysis;
-      intakeAnalysisStale.value = false;
-      lastAnalyzedRequest.value = normalizeIntakeRequest(intakeRequest.value);
-      intakeAnswers.value = Object.fromEntries(
-        analysis.material_questions.map((question) => [
-          question.id,
-          priorAnswers[question.id] ?? "",
-        ]),
-      );
+      intakeSession.value = session;
+      intakeQuestionAnswers.value = readQuestionAnswers(session);
+      intakeOperatorNotes.value = "";
+      intakeFinalizeNote.value = "";
+      await refreshConsoleState({ status: true, proposals: false });
     });
   }
 
-  async function generateIntakeProposalSetFromAnalysis() {
-    if (!intakeRequest.value.trim()) {
-      lastError.value = "Enter a request before generating proposals.";
+  async function continueIntakeSession() {
+    const session = intakeSession.value;
+
+    if (!session) {
+      lastError.value = "Start an intake session before continuing it.";
       return;
     }
 
-    if (!intakeAnalysis.value) {
-      lastError.value = "Run intake analysis before generating proposals.";
+    if (intakeSessionsEnabled.value === false) {
+      lastError.value = "Intake sessions are not available in this environment.";
       return;
     }
 
-    if (intakeAnalysisStale.value) {
-      lastError.value = "Re-run intake analysis before generating proposals.";
+    await runTask(isContinuingIntakeSession, "intake session continue failed", async () => {
+      const nextSession = await postJson<IntakeSessionPayload>(
+        `/api/intake/sessions/${session.session.id}/continue`,
+        {
+          expected_session_revision: session.session_revision,
+          operator_notes: intakeOperatorNotes.value,
+          question_answers: intakeQuestionAnswers.value,
+        },
+      );
+      intakeSession.value = nextSession;
+      intakeQuestionAnswers.value = readQuestionAnswers(nextSession);
+      intakeOperatorNotes.value = "";
+      await refreshConsoleState({ status: true, proposals: false });
+    });
+  }
+
+  async function finalizeIntakeSession() {
+    const session = intakeSession.value;
+
+    if (!session) {
+      lastError.value = "Start an intake session before finalising it.";
       return;
     }
 
-    await runTask(isGeneratingProposal, "proposal generation failed", async () => {
-      selectedProposalSet.value = await postJson<ProposalSetPayload>("/api/proposals/intake", {
-        request: intakeRequest.value,
-        answers: intakeAnswers.value,
-        analysis: intakeAnalysis.value,
-      });
-      selectedProposalSetId.value = selectedProposalSet.value.id;
-      await refreshConsoleState({ status: true, proposals: true });
+    if (intakeSessionsEnabled.value === false) {
+      lastError.value = "Intake sessions are not available in this environment.";
+      return;
+    }
+
+    await runTask(isFinalizingIntakeSession, "intake session finalization failed", async () => {
+      const nextSession = await postJson<IntakeSessionPayload>(
+        `/api/intake/sessions/${session.session.id}/finalize`,
+        {
+          expected_session_revision: session.session_revision,
+          finalize_note: intakeFinalizeNote.value,
+        },
+      );
+      intakeSession.value = nextSession;
+      intakeQuestionAnswers.value = readQuestionAnswers(nextSession);
+      intakeFinalizeNote.value = "";
+      await refreshConsoleState({ status: true, proposals: false });
+    });
+  }
+
+  async function abandonIntakeSession() {
+    const session = intakeSession.value;
+
+    if (!session) {
+      lastError.value = "Start an intake session before abandoning it.";
+      return;
+    }
+
+    if (intakeSessionsEnabled.value === false) {
+      lastError.value = "Intake sessions are not available in this environment.";
+      return;
+    }
+
+    await runTask(isAbandoningIntakeSession, "intake session abandonment failed", async () => {
+      const nextSession = await postJson<IntakeSessionPayload>(
+        `/api/intake/sessions/${session.session.id}/abandon`,
+        {
+          expected_session_revision: session.session_revision,
+        },
+      );
+      intakeSession.value = nextSession;
+      intakeQuestionAnswers.value = readQuestionAnswers(nextSession);
+      await refreshConsoleState({ status: true, proposals: false });
     });
   }
 
@@ -364,21 +453,21 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
-  function setIntakeAnswer(questionId: string, answer: string) {
-    intakeAnswers.value = {
-      ...intakeAnswers.value,
+  function setIntakeQuestionAnswer(questionId: string, answer: string) {
+    intakeQuestionAnswers.value = {
+      ...intakeQuestionAnswers.value,
       [questionId]: answer,
     };
   }
 
-  function setIntakeAnswerFromEvent(questionId: string, event: Event) {
+  function setIntakeQuestionAnswerFromEvent(questionId: string, event: Event) {
     const target = event.target;
 
     if (!(target instanceof HTMLTextAreaElement)) {
       return;
     }
 
-    setIntakeAnswer(questionId, target.value);
+    setIntakeQuestionAnswer(questionId, target.value);
   }
 
   function requireSelectedTranche(message: string): string | null {
@@ -403,15 +492,21 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
+  function readQuestionAnswers(session: IntakeSessionPayload | null): Record<string, string> {
+    if (!session) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      session.questions.map((question) => [question.id, question.answer_text ?? ""]),
+    );
+  }
+
   function setTaskError(error: unknown, fallbackMessage: string) {
     if (error instanceof ApiError) {
       lastErrorCode.value = error.errorCode ?? "";
       lastErrorRetryable.value = error.retryable;
       lastError.value = readApiErrorMessage(error, fallbackMessage);
-
-      if (error.errorCode?.startsWith("analysis_")) {
-        intakeAnalysisStale.value = true;
-      }
 
       return;
     }
@@ -426,6 +521,7 @@ export const useConsoleStore = defineStore("console", () => {
 
     if (status.value?.project.active_project) {
       await loadProposalQueue({ clearError: false });
+      await loadActiveIntakeSession({ clearError: false });
     }
   }
 
@@ -473,10 +569,14 @@ export const useConsoleStore = defineStore("console", () => {
     generatedPackage.value = null;
     generatedPackageSet.value = null;
     generatedReview.value = null;
-    intakeAnalysis.value = null;
-    intakeAnswers.value = {};
-    intakeAnalysisStale.value = false;
-    lastAnalyzedRequest.value = "";
+    resetIntakeState();
+  }
+
+  function resetIntakeState() {
+    intakeSession.value = null;
+    intakeQuestionAnswers.value = {};
+    intakeOperatorNotes.value = "";
+    intakeFinalizeNote.value = "";
   }
 
   const trancheOptions = computed(() =>
@@ -494,19 +594,31 @@ export const useConsoleStore = defineStore("console", () => {
     }),
   );
 
-  const blockingQuestions = computed(() =>
-    intakeAnalysis.value?.material_questions.filter((question) => question.blocking) ?? [],
+  const intakeSessionsEnabled = computed(
+    () => status.value?.feature_flags.intake_sessions_v1 !== false,
   );
-
-  const hasUnansweredBlockingQuestions = computed(() =>
-    blockingQuestions.value.some((question) => !intakeAnswers.value[question.id]?.trim()),
+  const activeIntakeSession = computed(() => intakeSession.value?.session ?? null);
+  const currentIntakeBrief = computed(() => intakeSession.value?.current_brief ?? null);
+  const currentIntakeBriefEntries = computed(() => intakeSession.value?.current_brief_entries ?? []);
+  const currentIntakeQuestions = computed(() => intakeSession.value?.questions ?? []);
+  const currentIntakeQuestionLineage = computed(
+    () => intakeSession.value?.question_lineage_summary ?? [],
   );
-  const canGenerateIntakeProposalSet = computed(
+  const canContinueIntakeSession = computed(
+    () => Boolean(intakeSession.value) && !isContinuingIntakeSession.value,
+  );
+  const canFinalizeIntakeSession = computed(
+    () => Boolean(intakeSession.value) && !isFinalizingIntakeSession.value,
+  );
+  const canAbandonIntakeSession = computed(
+    () => Boolean(intakeSession.value) && !isAbandoningIntakeSession.value,
+  );
+  const canStartIntakeSession = computed(
     () =>
-      Boolean(intakeAnalysis.value) &&
-      !intakeAnalysisStale.value &&
-      !hasUnansweredBlockingQuestions.value &&
-      !isGeneratingProposal.value,
+      !intakeSession.value &&
+      !isStartingIntakeSession.value &&
+      intakeSessionsEnabled.value &&
+      Boolean(intakeRequest.value.trim()),
   );
 
   const activeProject = computed(() => status.value?.project.active_project ?? null);
@@ -583,8 +695,16 @@ export const useConsoleStore = defineStore("console", () => {
       return "";
     }
 
+    if (lastErrorCode.value.startsWith("intake_session_")) {
+      return "Reload the intake session and try again.";
+    }
+
+    if (lastErrorCode.value === "active_intake_session_exists") {
+      return "Open the active intake session instead of starting a new one.";
+    }
+
     if (lastErrorCode.value.startsWith("analysis_")) {
-      return "Re-run intake analysis before generating proposals.";
+      return "Use the existing proposal workflow or refresh the intake session.";
     }
 
     if (lastErrorRetryable.value) {
@@ -592,15 +712,6 @@ export const useConsoleStore = defineStore("console", () => {
     }
 
     return "";
-  });
-
-  watch(intakeRequest, (nextValue) => {
-    if (!intakeAnalysis.value) {
-      return;
-    }
-
-    intakeAnalysisStale.value =
-      normalizeIntakeRequest(nextValue) !== lastAnalyzedRequest.value;
   });
 
   return {
@@ -614,7 +725,11 @@ export const useConsoleStore = defineStore("console", () => {
     isRefreshingPackageSet,
     isGeneratingReview,
     isGeneratingProposal,
-    isAnalyzingIntake,
+    isLoadingIntakeSession,
+    isStartingIntakeSession,
+    isContinuingIntakeSession,
+    isFinalizingIntakeSession,
+    isAbandoningIntakeSession,
     activeProposalMutationId,
     packageType,
     selectedTrancheId,
@@ -625,9 +740,20 @@ export const useConsoleStore = defineStore("console", () => {
     newProjectPath,
     existingProjectPath,
     intakeRequest,
-    intakeAnalysis,
-    intakeAnswers,
-    intakeAnalysisStale,
+    intakeOperatorNotes,
+    intakeFinalizeNote,
+    intakeSession,
+    intakeQuestionAnswers,
+    intakeSessionsEnabled,
+    activeIntakeSession,
+    currentIntakeBrief,
+    currentIntakeBriefEntries,
+    currentIntakeQuestions,
+    currentIntakeQuestionLineage,
+    canStartIntakeSession,
+    canContinueIntakeSession,
+    canFinalizeIntakeSession,
+    canAbandonIntakeSession,
     lastError,
     lastErrorCode,
     lastErrorGuidance,
@@ -636,9 +762,6 @@ export const useConsoleStore = defineStore("console", () => {
     isOpeningProject,
     isSelectingProjectPath,
     trancheOptions,
-    blockingQuestions,
-    hasUnansweredBlockingQuestions,
-    canGenerateIntakeProposalSet,
     reviewPackageRegenerationIds,
     canGenerateReviewFollowUp,
     hasActiveProject,
@@ -653,6 +776,7 @@ export const useConsoleStore = defineStore("console", () => {
     loadStatus,
     loadProposalQueue,
     loadProposalSet,
+    loadActiveIntakeSession,
     createManagedProject,
     openManagedProject,
     openKnownProject,
@@ -662,19 +786,17 @@ export const useConsoleStore = defineStore("console", () => {
     refreshSelectedPackageSet,
     regeneratePackageFromReview,
     generateReviewCheckpoint,
-    analyzeIntakeRequest,
-    generateIntakeProposalSetFromAnalysis,
+    startIntakeSession,
+    continueIntakeSession,
+    finalizeIntakeSession,
+    abandonIntakeSession,
     generateReviewProposalSetForSelectedTranche,
     generateReviewProposalSetForTranche,
     mutateProposal,
-    setIntakeAnswer,
-    setIntakeAnswerFromEvent,
+    setIntakeQuestionAnswer,
+    setIntakeQuestionAnswerFromEvent,
   };
 });
-
-function normalizeIntakeRequest(value: string): string {
-  return value.replace(/\r\n?/g, "\n").trim().replace(/\n{3,}/g, "\n\n");
-}
 
 function readApiErrorMessage(error: ApiError, fallbackMessage: string): string {
   return error.message || fallbackMessage;
