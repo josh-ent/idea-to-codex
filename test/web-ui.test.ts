@@ -91,6 +91,11 @@ function buildStatusPayload(): StatusPayload {
       },
       known_projects: [],
     },
+    llm_usage: {
+      total_tokens: 18222,
+      openai_tokens: 15360,
+      codex_tokens: 2862,
+    },
     repository_state: {
       available: true,
       branch: "main",
@@ -240,6 +245,19 @@ describe("console ui", () => {
 
     expect(wrapper.text()).toContain("The intake provider timed out.");
     expect(wrapper.text()).toContain("You can retry this action.");
+  });
+
+  it("renders active-project token metrics in the left rail", async () => {
+    const store = useConsoleStore();
+    store.refreshWorkspace = vi.fn(async () => {});
+    store.status = buildStatusPayload();
+
+    const wrapper = mountApp();
+
+    expect(wrapper.text()).toContain("Total tokens");
+    expect(wrapper.text()).toContain("18,222");
+    expect(wrapper.text()).toContain("15,360");
+    expect(wrapper.text()).toContain("2,862");
   });
 
   it("renders non-retryable errors without extra retry guidance", async () => {

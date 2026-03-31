@@ -434,7 +434,7 @@ class LoggingBackend {
         project_root: input.project_root,
         provider: input.provider,
         request_log_event_id: input.request_log_event_id ?? null,
-        resolved_model: input.resolved_model,
+        resolved_model: input.resolved_model ?? null,
         response_log_event_id: input.response_log_event_id ?? null,
         total_tokens: input.total_tokens,
       });
@@ -451,7 +451,7 @@ class LoggingBackend {
       project_root: input.project_root,
       provider: input.provider,
       request_log_event_id: input.request_log_event_id ?? null,
-      resolved_model: input.resolved_model,
+      resolved_model: input.resolved_model ?? null,
       response_log_event_id: input.response_log_event_id ?? null,
       total_tokens: input.total_tokens,
     };

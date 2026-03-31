@@ -14,6 +14,7 @@ import {
   intakeSchemaVersion,
   type IntakeAnalysis,
 } from "../src/modules/intake/contract.js";
+import { recordLlmUsage } from "../src/runtime/logging.js";
 import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const repos: FixtureRepo[] = [];
@@ -188,6 +189,52 @@ describe("server routes", () => {
     const statusResponse = await request(app).get("/api/status");
     expect(statusResponse.body.project.active_project.path).toBe(managed.rootDir);
     expect(statusResponse.body.validation.tranches.length).toBeGreaterThan(0);
+  });
+
+  it("returns project-scoped llm usage totals in status", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createManagedProjectApp(repo);
+
+    recordLlmUsage({
+      configured_model: "gpt-5.2-chat-latest",
+      input_tokens: 120,
+      lane: "broad_reasoning",
+      operation: "responses.parse",
+      output_tokens: 30,
+      project_root: repo.rootDir,
+      provider: "openai",
+      total_tokens: 150,
+    });
+    recordLlmUsage({
+      configured_model: "codex-latest",
+      input_tokens: 200,
+      lane: "codex_execution",
+      operation: "task.run",
+      output_tokens: 40,
+      project_root: repo.rootDir,
+      provider: "codex",
+      total_tokens: 240,
+    });
+    recordLlmUsage({
+      configured_model: "gpt-5.2-chat-latest",
+      input_tokens: 999,
+      lane: "broad_reasoning",
+      operation: "responses.parse",
+      output_tokens: 1,
+      project_root: "/other/project",
+      provider: "openai",
+      total_tokens: 1000,
+    });
+
+    const response = await request(app).get("/api/status");
+
+    expect(response.status).toBe(200);
+    expect(response.body.llm_usage).toEqual({
+      total_tokens: 390,
+      openai_tokens: 150,
+      codex_tokens: 240,
+    });
   });
 
   it("selects a project directory through the api", async () => {

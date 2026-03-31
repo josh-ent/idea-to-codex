@@ -68,6 +68,11 @@ const activeScreenMeta = computed(
 const activeProjectName = computed(
   () => store.activeProject?.name ?? "No active project",
 );
+const llmUsageSummary = computed(() => store.llmUsageSummary);
+
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-GB").format(value);
+}
 
 onMounted(() => {
   void store.refreshWorkspace();
@@ -100,6 +105,23 @@ onMounted(() => {
         <div class="app-rail__project">
           <span>Active project</span>
           <strong>{{ activeProjectName }}</strong>
+          <div class="app-rail__metrics" aria-label="LLM token usage metrics">
+            <div class="app-rail__metrics-total">
+              <span>Total tokens</span>
+              <strong>{{ formatTokenCount(llmUsageSummary.total_tokens) }}</strong>
+            </div>
+
+            <dl class="app-rail__metrics-grid">
+              <div>
+                <dt>OpenAI</dt>
+                <dd>{{ formatTokenCount(llmUsageSummary.openai_tokens) }}</dd>
+              </div>
+              <div>
+                <dt>Codex</dt>
+                <dd>{{ formatTokenCount(llmUsageSummary.codex_tokens) }}</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </aside>
 

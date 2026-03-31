@@ -6,6 +6,7 @@ import {
   createLogger,
   initializeLogging,
   generateRequestId,
+  listLlmUsageRecords,
   subscribeToLogEvents,
   summarizeError,
   withLogContext,
@@ -35,6 +36,7 @@ import {
   type IntakeAnalysisClient,
 } from "../modules/intake/service.js";
 import type { IntakeAnalysis } from "../modules/intake/contract.js";
+import type { ProjectLlmUsageSummary } from "../modules/llm/contract.js";
 import { generatePackage, refreshPackageSet } from "../modules/packaging/service.js";
 import {
   createProject,
@@ -135,10 +137,14 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
       const repositoryState = projectRoot
         ? await getRepositoryState(projectRoot)
         : unavailableRepositoryState();
+      const llmUsage = projectRoot
+        ? summarizeProjectLlmUsage(projectRoot)
+        : emptyProjectLlmUsageSummary();
       response.json({
         project: workspace,
         validation,
         repository_state: repositoryState,
+        llm_usage: llmUsage,
         errors: collectValidationErrors(validation),
       });
     } catch (error) {
@@ -532,6 +538,37 @@ function unavailableRepositoryState() {
     dirty_paths: [],
     is_dirty: false,
     is_main_branch: false,
+  };
+}
+
+function summarizeProjectLlmUsage(projectRoot: string): ProjectLlmUsageSummary {
+  const records = listLlmUsageRecords({ project_root: projectRoot });
+  let openaiTokens = 0;
+  let codexTokens = 0;
+
+  for (const record of records) {
+    if (record.provider === "openai") {
+      openaiTokens += record.total_tokens;
+      continue;
+    }
+
+    if (record.provider === "codex") {
+      codexTokens += record.total_tokens;
+    }
+  }
+
+  return {
+    total_tokens: openaiTokens + codexTokens,
+    openai_tokens: openaiTokens,
+    codex_tokens: codexTokens,
+  };
+}
+
+function emptyProjectLlmUsageSummary(): ProjectLlmUsageSummary {
+  return {
+    total_tokens: 0,
+    openai_tokens: 0,
+    codex_tokens: 0,
   };
 }
 

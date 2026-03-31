@@ -24,7 +24,7 @@ export interface LlmUsageRecordInput {
   lane: string;
   operation: string;
   configured_model: string;
-  resolved_model: string | null;
+  resolved_model?: string | null;
   project_root: string;
   input_tokens: number;
   output_tokens: number;
@@ -37,4 +37,10 @@ export interface LlmUsageRecordInput {
 export interface LlmUsageQuery {
   provider?: LlmUsageProvider;
   project_root?: string;
+}
+
+export interface ProjectLlmUsageSummary {
+  total_tokens: number;
+  openai_tokens: number;
+  codex_tokens: number;
 }

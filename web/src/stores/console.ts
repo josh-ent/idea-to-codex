@@ -553,6 +553,12 @@ export const useConsoleStore = defineStore("console", () => {
     executionPackages: status.value?.validation.executionPackages.length ?? 0,
   }));
 
+  const llmUsageSummary = computed(() => ({
+    total_tokens: status.value?.llm_usage.total_tokens ?? 0,
+    openai_tokens: status.value?.llm_usage.openai_tokens ?? 0,
+    codex_tokens: status.value?.llm_usage.codex_tokens ?? 0,
+  }));
+
   const reviewPackageRegenerationIds = computed(() => {
     const review = generatedReview.value;
 
@@ -642,6 +648,7 @@ export const useConsoleStore = defineStore("console", () => {
     openQuestionCount,
     repositoryDetails,
     repositoryRecordCounts,
+    llmUsageSummary,
     refreshWorkspace,
     loadStatus,
     loadProposalQueue,

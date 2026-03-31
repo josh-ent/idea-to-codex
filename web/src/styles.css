@@ -147,6 +147,56 @@ textarea {
   border-top: 1px solid var(--app-line);
 }
 
+.app-rail__metrics {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--app-line);
+  border-radius: var(--app-radius-sm);
+  background: rgba(22, 93, 87, 0.06);
+}
+
+.app-rail__metrics-total {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.app-rail__metrics-total strong {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.app-rail__metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.app-rail__metrics-grid div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.app-rail__metrics-grid dt,
+.app-rail__metrics-grid dd {
+  margin: 0;
+}
+
+.app-rail__metrics-grid dt {
+  font-size: 0.72rem;
+  color: var(--app-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.app-rail__metrics-grid dd {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .app-rail__project span,
 .app-header__project span,
 .control span,

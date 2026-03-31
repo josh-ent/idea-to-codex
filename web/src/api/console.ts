@@ -26,10 +26,12 @@ export interface ProjectWorkspacePayload {
 }
 
 import type { IntakeAnalysis, StructuredErrorPayload } from "../../../src/modules/intake/contract.js";
+import type { ProjectLlmUsageSummary } from "../../../src/modules/llm/contract.js";
 export type { IntakeAnalysis, StructuredErrorPayload } from "../../../src/modules/intake/contract.js";
 
 export interface StatusPayload {
   project: ProjectWorkspacePayload;
+  llm_usage: ProjectLlmUsageSummary;
   repository_state: {
     available: boolean;
     branch: string | null;
