@@ -9,10 +9,10 @@ export function resolveStateDir(explicitStateDir?: string): string {
       : path.join(os.homedir(), ".idea-to-codex");
 }
 
-export function loggingDatabasePath(explicitStateDir?: string): string {
-  return process.env.IDEA_TO_CODEX_LOG_DB_PATH?.trim()
-    ? path.resolve(process.env.IDEA_TO_CODEX_LOG_DB_PATH)
-    : path.join(resolveStateDir(explicitStateDir), "logs.sqlite");
+export function persistenceDatabasePath(explicitStateDir?: string): string {
+  return process.env.IDEA_TO_CODEX_PERSISTENCE_DB_PATH?.trim()
+    ? path.resolve(process.env.IDEA_TO_CODEX_PERSISTENCE_DB_PATH)
+    : path.join(resolveStateDir(explicitStateDir), "studio.sqlite");
 }
 
 export function workspaceStatePath(studioRoot: string, explicitStateDir?: string): string {

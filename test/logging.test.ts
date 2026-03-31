@@ -192,7 +192,7 @@ describe("runtime logging", () => {
       root_dir: repo.rootDir,
     });
 
-    const db = new Database(path.join(stateDir, "logs.sqlite"), { readonly: true });
+    const db = new Database(path.join(stateDir, "studio.sqlite"), { readonly: true });
     const row = db
       .prepare(
         "SELECT scope, message, project_root, payload_json FROM log_events ORDER BY id DESC LIMIT 1",

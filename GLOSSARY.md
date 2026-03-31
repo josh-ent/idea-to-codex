@@ -105,8 +105,17 @@
 - Allowed aliases: `usage record`, `token audit record`
 - Definition: A persisted observability record that attributes one model call's token usage to a concrete project root, provider, lane, operation, and model.
 - Disallowed or deprecated synonyms: `cost guess`, `raw usage blob`
-- Related entities: `Log Event`, `Log Viewer`, `Operator Console`
+- Related entities: `Log Event`, `Log Viewer`, `Operator Console`, `Studio Persistence Store`
 - Notes / usage constraints: `LLM Usage Record` entries are observability data only. They do not become repository truth and must be attributable to one canonical project root.
+
+## Studio Persistence Store
+
+- Canonical name: `Studio Persistence Store`
+- Allowed aliases: `persistence store`
+- Definition: The backend-owned SQLite store used for durable Studio metadata such as `Log Event` records and `LLM Usage Record` auditing.
+- Disallowed or deprecated synonyms: `log database`, `logging database`, `logs sqlite`
+- Related entities: `Log Event`, `LLM Usage Record`, `Log Viewer`
+- Notes / usage constraints: The `Studio Persistence Store` is not a project-truth store. Repository artefacts remain canonical.
 
 ## Actor
 

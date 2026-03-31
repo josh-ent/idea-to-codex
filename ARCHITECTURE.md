@@ -11,7 +11,7 @@ This document describes the current system structure.
 ## Current implementation shape
 
 - A Node backend owns managed-project selection, file-backed bootstrap, validation, model-backed intake analysis, review checkpoint generation, traceability, and package assembly.
-- The backend also owns logging ingestion, SQLite-backed `Log Event` storage, and log query APIs.
+- The backend also owns logging ingestion, the SQLite-backed `Studio Persistence Store`, and log query APIs.
 - The backend also owns project-scoped `LLM Usage Record` auditing for model calls made inside the product.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
@@ -39,7 +39,7 @@ This document describes the current system structure.
 - Top-level documents define stable project truth such as architecture, glossary, assumptions, risks, and backlog.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
-- SQLite is used only for observability records such as logs and `LLM Usage Record` auditing, and is not a project-truth store.
+- The `Studio Persistence Store` is used only for observability records such as logs and `LLM Usage Record` auditing, and is not a project-truth store.
 
 ## Canonical loop
 

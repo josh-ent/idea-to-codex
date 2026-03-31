@@ -17,7 +17,7 @@ import {
   type LlmUsageRecord,
   type LlmUsageRecordInput,
 } from "../modules/llm/contract.js";
-import { loggingDatabasePath } from "./state-paths.js";
+import { persistenceDatabasePath } from "./state-paths.js";
 
 export type LogLevelName = LogEventLevel | "silent";
 export type LogFields = Record<string, unknown>;
@@ -89,7 +89,7 @@ export function generateRequestId(): string {
 }
 
 export function initializeLogging(options: LoggingOptions = {}): void {
-  const dbPath = loggingDatabasePath(options.stateDir);
+  const dbPath = persistenceDatabasePath(options.stateDir);
 
   if (loggingBackend?.dbPath === dbPath) {
     return;

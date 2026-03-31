@@ -59,9 +59,9 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 ## Backend logging
 
 - Backend logs now flow through one backend-owned logging pipeline.
-- The pipeline writes readable stderr output and also persists Studio-wide `Log Event` records into SQLite.
-- The same observability store also persists project-scoped `LLM Usage Record` entries for in-product model calls.
-- The SQLite database is used only for logging and lives at `logs.sqlite` inside the backend state directory by default.
+- The pipeline writes readable stderr output and also persists Studio-wide `Log Event` records into the `Studio Persistence Store`.
+- The same `Studio Persistence Store` also persists project-scoped `LLM Usage Record` entries for in-product model calls.
+- The `Studio Persistence Store` lives at `studio.sqlite` inside the backend state directory by default.
 - The dedicated log viewer is served at `/logs` and queries the persisted log store through `/api/logs/...`.
 - stderr defaults to the pretty tabular renderer with fixed columns for timestamp, level, scope, request id, and project root.
 - Development defaults to full verbosity with `trace` level logging.
@@ -69,13 +69,13 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - Test runs default to `error` to keep automated output readable.
 - Override the level with `IDEA_TO_CODEX_LOG_LEVEL=trace|debug|info|warn|error|silent` or `LOG_LEVEL=...`.
 - Override stderr formatting with `IDEA_TO_CODEX_LOG_FORMAT=pretty|json`.
-- Override the log database path with `IDEA_TO_CODEX_LOG_DB_PATH=/path/to/logs.sqlite`.
+- Override the `Studio Persistence Store` path with `IDEA_TO_CODEX_PERSISTENCE_DB_PATH=/path/to/studio.sqlite`.
 
 ## Intake analysis
 
 - Intake analysis is now model-backed and uses the OpenAI Responses API with structured outputs.
 - The backend owns the canonical schema, stable question ids, question prompts, blocking flags, and metadata hashes.
-- OpenAI intake calls are audited per canonical project root with token usage records in the observability store.
+- OpenAI intake calls are audited per canonical project root with token usage records in the `Studio Persistence Store`.
 - The usage audit shape is provider-based and already reserves `codex` as a separate accounting provider for future in-product Codex lanes.
 - `material_questions[].id` is the stable key used for answers and deterministic proposal generation.
 - `material_questions[].display_id` is presentation-only.
