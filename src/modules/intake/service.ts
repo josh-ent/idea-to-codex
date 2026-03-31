@@ -13,6 +13,11 @@ import { workflowQuestionTypes } from "../governance/workflow.js";
 import { parseStructuredTextWithOpenAI } from "../llm/openai.js";
 import { IntakeError } from "./errors.js";
 import {
+  buildIntakeModelOutputSchema,
+  loadIntakePromptAssets,
+  renderIntakeAnalyzePrompt,
+} from "./prompt-assets.js";
+import {
   intakePromptVersion,
   intakeQuestionTypes,
   intakeSchemaVersion,
@@ -48,14 +53,6 @@ const optionalContextSourcePaths = [
   "BACKLOG.md",
 ] as const;
 
-interface IntakeQuestionDefinition {
-  blocking: boolean;
-  defaultRecommendation: string;
-  consequenceOfNonDecision: string;
-  affectedArtifacts: string[];
-  prompt: string;
-}
-
 export interface IntakeAnalysisClient {
   analyze(input: {
     canonicalProjectRoot: string;
@@ -77,16 +74,7 @@ export interface IntakeAnalysisOptions {
 }
 
 const questionTypeSchema = z.enum(intakeQuestionTypes);
-const intakeModelOutputSchema = z
-  .object({
-    summary: z.string(),
-    recommended_tranche_title: z.string(),
-    affected_artifacts: z.array(z.string()),
-    affected_modules: z.array(z.string()),
-    question_types: z.array(questionTypeSchema),
-    draft_assumptions: z.array(z.string()),
-  })
-  .strict();
+const intakeModelOutputSchema = buildIntakeModelOutputSchema(questionTypeSchema);
 const intakeQuestionSchema = z
   .object({
     id: questionTypeSchema,
@@ -168,105 +156,6 @@ const looseSuppliedAnalysisSchema = z
   })
   .strict();
 
-const questionRegistry: Record<IntakeQuestionType, IntakeQuestionDefinition> = {
-  workflow_actor: {
-    blocking: true,
-    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
-    defaultRecommendation:
-      "Name the Actor explicitly so workflow critique stays tied to the real participant rather than an abstract user.",
-    consequenceOfNonDecision:
-      "Workflow critique will stay ambiguous because the real participant is undefined.",
-    prompt: "Which Actor is this workflow or Use Case for?",
-  },
-  workflow_use_case: {
-    blocking: true,
-    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
-    defaultRecommendation:
-      "Name the Use Case explicitly so critique stays attached to one real task instead of a vague workflow area.",
-    consequenceOfNonDecision:
-      "Workflow critique will stay broad because the intended Use Case is undefined.",
-    prompt: "What named Use Case or workflow is being changed or critiqued?",
-  },
-  workflow_goal: {
-    blocking: true,
-    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
-    defaultRecommendation:
-      "State the Actor goal in task terms so the system can judge whether the workflow serves it.",
-    consequenceOfNonDecision:
-      "The system cannot tell whether the workflow helps the Actor succeed or just moves data around.",
-    prompt: "What goal is the Actor trying to achieve in this Use Case?",
-  },
-  workflow_constraints: {
-    blocking: true,
-    affectedArtifacts: ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
-    defaultRecommendation:
-      "List the workflow constraints explicitly so critique can weigh the tradeoffs against the Actor goal.",
-    consequenceOfNonDecision:
-      "The system may critique the workflow without knowing the rules or tradeoffs it must respect.",
-    prompt:
-      "What constraints must this Use Case respect? Separate multiple constraints with new lines or semicolons.",
-  },
-  terminology_integrity: {
-    blocking: true,
-    affectedArtifacts: ["GLOSSARY.md", "DATA_DICTIONARY.md"],
-    defaultRecommendation:
-      "Update the glossary and data dictionary before implementation work spreads the new term.",
-    consequenceOfNonDecision:
-      "Terminology will drift across docs, prompts, and UI copy.",
-    prompt:
-      "Which term is changing, what is its canonical replacement, and which older synonyms should be treated as deprecated?",
-  },
-  data_definition_integrity: {
-    blocking: true,
-    affectedArtifacts: ["DATA_DICTIONARY.md", "ARCHITECTURE.md"],
-    defaultRecommendation:
-      "Define or update the data dictionary entry before adding new write paths or prompts.",
-    consequenceOfNonDecision:
-      "Package generation and validation will rely on undefined or inconsistent data meaning.",
-    prompt:
-      "What field or entity meaning needs to become canonical, and what constraints or allowed values matter?",
-  },
-  architecture_direction: {
-    blocking: true,
-    affectedArtifacts: ["ARCHITECTURE.md", "docs/decisions/"],
-    defaultRecommendation:
-      "Capture the architecture choice in a decision record if it changes module ownership or boundaries.",
-    consequenceOfNonDecision:
-      "Implementation may proceed on an implicit design choice that is expensive to reverse.",
-    prompt:
-      "What architecture boundary or ownership decision is changing, and which modules are affected?",
-  },
-  governance_posture: {
-    blocking: true,
-    affectedArtifacts: ["RISKS.md", "ASSUMPTIONS.md", "PLAN.md"],
-    defaultRecommendation:
-      "Record the constraint before automating the affected workflow.",
-    consequenceOfNonDecision:
-      "The platform could automate a flow that violates the intended governance posture.",
-    prompt:
-      "What governance or approval constraint must the system respect before continuing?",
-  },
-  handoff_quality: {
-    blocking: false,
-    affectedArtifacts: ["prompts/templates/plan-package.md", "prompts/templates/execution-package.md"],
-    defaultRecommendation:
-      "Keep the handoff shape tranche-scoped and derived from validated repository truth.",
-    consequenceOfNonDecision:
-      "Codex handoffs may become weaker or more ambiguous without obvious breakage.",
-    prompt: "What aspect of the plan or execution package needs to become more explicit for Codex?",
-  },
-  bounded_change: {
-    blocking: false,
-    affectedArtifacts: ["PLAN.md", "BACKLOG.md"],
-    defaultRecommendation:
-      "Treat the request as a bounded change inside the current architecture until stronger evidence appears.",
-    consequenceOfNonDecision:
-      "The request may move forward without surfacing deeper product or architecture implications.",
-    prompt:
-      "What outcome should this change produce, and which current tranche or workflow does it belong to?",
-  },
-};
-
 interface LoadedContextSource {
   path: string;
   content: string;
@@ -284,17 +173,8 @@ interface LoadedContext {
 }
 
 type IntakeAnalysisBody = Omit<IntakeAnalysis, "analysis_metadata">;
+type IntakeQuestionRegistry = Awaited<ReturnType<typeof loadIntakePromptAssets>>["question_registry"];
 type LooseSuppliedAnalysis = z.infer<typeof looseSuppliedAnalysisSchema>;
-
-const systemInstructions = [
-  "You analyze repository-backed intake requests for a product planning system.",
-  "Return only bounded analysis fields. Do not return full question objects.",
-  "Choose question_types only from the provided enum.",
-  "Do not emit duplicate question types.",
-  "Only include bounded_change when no more specific question types are required.",
-  "Use affected_artifacts and affected_modules as advisory bounded-analysis fields only.",
-  "Keep the response concise, structured, and grounded in the provided request and repository context.",
-].join("\n");
 
 export async function analyzeRequest(
   rootDir: string,
@@ -305,13 +185,14 @@ export async function analyzeRequest(
     logger,
     "analyze intake request",
     async () => {
+      const promptAssets = await loadIntakePromptAssets();
       const normalizedRequest = normalizeRequestText(requestText);
       const requestHash = hashText(normalizedRequest);
       const configuredModel = options.configuredModel?.trim() || defaultConfiguredModel;
       const timeoutMs = normalizeTimeoutMs(options.timeoutMs);
       const loadedContext = await loadContext(rootDir);
-      const client = options.client ?? createDefaultClient();
-      const prompt = buildPrompt(normalizedRequest, loadedContext);
+      const client = options.client ?? createDefaultClient(promptAssets);
+      const prompt = buildPrompt(normalizedRequest, loadedContext, promptAssets.analyze.user_template);
       const startedAt = Date.now();
 
       try {
@@ -329,6 +210,7 @@ export async function analyzeRequest(
           contextMetadata: loadedContext,
           durationMs: Date.now() - startedAt,
           normalizedRequest,
+          questionRegistry: promptAssets.question_registry,
           rawOutput: result.output,
           requestHash,
           resolvedModel: result.resolvedModel,
@@ -378,7 +260,9 @@ export function normalizeRequestText(requestText: string): string {
   return requestText.replace(/\r\n?/g, "\n").trim().replace(/\n{3,}/g, "\n\n");
 }
 
-function createDefaultClient(): IntakeAnalysisClient {
+function createDefaultClient(
+  promptAssets: Awaited<ReturnType<typeof loadIntakePromptAssets>>,
+): IntakeAnalysisClient {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
@@ -394,10 +278,13 @@ function createDefaultClient(): IntakeAnalysisClient {
         apiKey,
         canonicalProjectRoot: input.canonicalProjectRoot,
         configuredModel: input.configuredModel,
-        instructions: systemInstructions,
+        instructions: promptAssets.analyze.system_instructions,
         lane: input.lane,
         prompt: input.prompt,
-        responseFormat: zodTextFormat(intakeModelOutputSchema, "intake_analysis"),
+        responseFormat: zodTextFormat(
+          intakeModelOutputSchema,
+          promptAssets.analyze.response_format_name,
+        ),
         timeoutMs: input.timeoutMs,
       });
 
@@ -577,21 +464,15 @@ async function resolveCanonicalProjectRoot(rootDir: string): Promise<string> {
   return canonicalProjectRoot;
 }
 
-function buildPrompt(requestText: string, context: LoadedContext): string {
-  return [
-    `Schema version: ${intakeSchemaVersion}`,
-    `Prompt version: ${intakePromptVersion}`,
-    `Canonical project root: ${context.canonicalProjectRoot}`,
-    "",
-    "Question type enum:",
-    ...intakeQuestionTypes.map((questionType) => `- ${questionType}`),
-    "",
-    "Request:",
-    requestText,
-    "",
-    "Repository context:",
-    context.promptContext,
-  ].join("\n");
+function buildPrompt(requestText: string, context: LoadedContext, userTemplate: string): string {
+  return renderIntakeAnalyzePrompt({
+    canonical_project_root: context.canonicalProjectRoot,
+    context: context.promptContext,
+    prompt_version: intakePromptVersion,
+    request: requestText,
+    schema_version: intakeSchemaVersion,
+    template: userTemplate,
+  });
 }
 
 function finalizeAnalysis(input: {
@@ -601,6 +482,7 @@ function finalizeAnalysis(input: {
   contextMetadata: LoadedContext;
   durationMs: number;
   normalizedRequest: string;
+  questionRegistry: IntakeQuestionRegistry;
   rawOutput: IntakeModelOutput;
   requestHash: string;
   resolvedModel: string | null;
@@ -619,7 +501,7 @@ function finalizeAnalysis(input: {
     );
   }
 
-  const normalizedBody = buildCanonicalAnalysisBody(parsedOutput.data);
+  const normalizedBody = buildCanonicalAnalysisBody(parsedOutput.data, input.questionRegistry);
   const analysisHash = computeAnalysisHash({
     canonicalProjectRoot: input.canonicalProjectRoot,
     contextHash: input.contextHash,
@@ -647,7 +529,7 @@ function finalizeAnalysis(input: {
       context_sources_invalid: input.contextMetadata.contextSourcesInvalid,
       context_truncated: input.contextMetadata.contextTruncated,
     },
-  });
+  }, input.questionRegistry);
 
   logger.debug("intake analysis finalized", {
     analysis_hash: analysis.analysis_metadata.analysis_hash,
@@ -674,6 +556,7 @@ async function validateSuppliedAnalysis(
     logger,
     "validate supplied intake analysis",
     async () => {
+      const promptAssets = await loadIntakePromptAssets();
       const normalizedRequest = normalizeRequestText(requestText);
       const requestHash = hashText(normalizedRequest);
       const context = await loadContext(rootDir);
@@ -728,6 +611,7 @@ async function validateSuppliedAnalysis(
 
       const normalizedBody = buildCanonicalAnalysisBody(
         buildCanonicalModelOutputFromSuppliedAnalysis(suppliedEnvelope),
+        promptAssets.question_registry,
       );
       const normalizedAnalysis = validateCanonicalAnalysis({
         ...normalizedBody,
@@ -736,7 +620,7 @@ async function validateSuppliedAnalysis(
           prompt_version: intakePromptVersion,
           schema_version: intakeSchemaVersion,
         },
-      });
+      }, promptAssets.question_registry);
 
       const expectedHash = computeAnalysisHash({
         canonicalProjectRoot: context.canonicalProjectRoot,
@@ -779,7 +663,10 @@ function buildCanonicalModelOutputFromSuppliedAnalysis(
   };
 }
 
-function buildCanonicalAnalysisBody(rawOutput: IntakeModelOutput): IntakeAnalysisBody {
+function buildCanonicalAnalysisBody(
+  rawOutput: IntakeModelOutput,
+  questionRegistry: IntakeQuestionRegistry,
+): IntakeAnalysisBody {
   const questionTypes = normalizeQuestionTypes(rawOutput.question_types);
   const materialQuestions = questionTypes.map((type, index) => {
     const definition = questionRegistry[type];
@@ -789,9 +676,9 @@ function buildCanonicalAnalysisBody(rawOutput: IntakeModelOutput): IntakeAnalysi
       display_id: `Q-${String(index + 1).padStart(3, "0")}`,
       type,
       blocking: definition.blocking,
-      default_recommendation: definition.defaultRecommendation,
-      consequence_of_non_decision: definition.consequenceOfNonDecision,
-      affected_artifacts: [...definition.affectedArtifacts],
+      default_recommendation: definition.default_recommendation,
+      consequence_of_non_decision: definition.consequence_of_non_decision,
+      affected_artifacts: [...definition.affected_artifacts],
       status: "open" as const,
       prompt: definition.prompt,
     };
@@ -811,7 +698,10 @@ function buildCanonicalAnalysisBody(rawOutput: IntakeModelOutput): IntakeAnalysi
   };
 }
 
-function validateCanonicalAnalysis(value: unknown): IntakeAnalysis {
+function validateCanonicalAnalysis(
+  value: unknown,
+  questionRegistry: IntakeQuestionRegistry,
+): IntakeAnalysis {
   const parsed = intakeAnalysisSchema.safeParse(value);
 
   if (!parsed.success) {
@@ -837,7 +727,7 @@ function validateCanonicalAnalysis(value: unknown): IntakeAnalysis {
     affected_modules: analysis.affected_modules,
     question_types: expectedQuestionTypes,
     draft_assumptions: analysis.draft_assumptions,
-  }).material_questions;
+  }, questionRegistry).material_questions;
 
   if (JSON.stringify(analysis.material_questions) !== JSON.stringify(expectedQuestions)) {
     throw new IntakeError(

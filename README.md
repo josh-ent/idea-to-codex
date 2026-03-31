@@ -74,7 +74,8 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 ## Intake analysis
 
 - Intake analysis is now model-backed and uses the OpenAI Responses API with structured outputs.
-- The backend owns the canonical schema, stable question ids, question prompts, blocking flags, and metadata hashes.
+- Intake prompt assets live under `prompts/intake/` so the system prompt, user prompt template, structured output shape, and question registry are inspectable without digging through backend code.
+- The backend still owns the canonical schema, stable question ids, normalization rules, blocking flags, and metadata hashes.
 - OpenAI intake calls are audited per canonical project root with token usage records in the `Studio Persistence Store`.
 - The usage audit shape is provider-based and already reserves `codex` as a separate accounting provider for future in-product Codex lanes.
 - `material_questions[].id` is the stable key used for answers and deterministic proposal generation.

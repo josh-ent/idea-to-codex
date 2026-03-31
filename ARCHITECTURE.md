@@ -39,6 +39,7 @@ This document describes the current system structure.
 - Top-level documents define stable project truth such as architecture, glossary, assumptions, risks, and backlog.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
+- Intake prompt assets live under `prompts/intake/` and are loaded by the backend at runtime; the application code owns normalization and validation, not embedded prompt prose.
 - The `Studio Persistence Store` is used only for observability records such as logs and `LLM Usage Record` auditing, and is not a project-truth store.
 
 ## Canonical loop

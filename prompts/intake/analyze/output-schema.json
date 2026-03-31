@@ -1,0 +1,11 @@
+{
+  "response_format_name": "intake_analysis",
+  "fields": {
+    "summary": "string",
+    "recommended_tranche_title": "string",
+    "affected_artifacts": "string_array",
+    "affected_modules": "string_array",
+    "question_types": "question_type_array",
+    "draft_assumptions": "string_array"
+  }
+}

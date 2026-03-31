@@ -1,0 +1,72 @@
+{
+  "workflow_actor": {
+    "blocking": true,
+    "affected_artifacts": ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    "default_recommendation": "Name the Actor explicitly so workflow critique stays tied to the real participant rather than an abstract user.",
+    "consequence_of_non_decision": "Workflow critique will stay ambiguous because the real participant is undefined.",
+    "prompt": "Which Actor is this workflow or Use Case for?"
+  },
+  "workflow_use_case": {
+    "blocking": true,
+    "affected_artifacts": ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    "default_recommendation": "Name the Use Case explicitly so critique stays attached to one real task instead of a vague workflow area.",
+    "consequence_of_non_decision": "Workflow critique will stay broad because the intended Use Case is undefined.",
+    "prompt": "What named Use Case or workflow is being changed or critiqued?"
+  },
+  "workflow_goal": {
+    "blocking": true,
+    "affected_artifacts": ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    "default_recommendation": "State the Actor goal in task terms so the system can judge whether the workflow serves it.",
+    "consequence_of_non_decision": "The system cannot tell whether the workflow helps the Actor succeed or just moves data around.",
+    "prompt": "What goal is the Actor trying to achieve in this Use Case?"
+  },
+  "workflow_constraints": {
+    "blocking": true,
+    "affected_artifacts": ["ARCHITECTURE.md", "PLAN.md", "BACKLOG.md"],
+    "default_recommendation": "List the workflow constraints explicitly so critique can weigh the tradeoffs against the Actor goal.",
+    "consequence_of_non_decision": "The system may critique the workflow without knowing the rules or tradeoffs it must respect.",
+    "prompt": "What constraints must this Use Case respect? Separate multiple constraints with new lines or semicolons."
+  },
+  "terminology_integrity": {
+    "blocking": true,
+    "affected_artifacts": ["GLOSSARY.md", "DATA_DICTIONARY.md"],
+    "default_recommendation": "Update the glossary and data dictionary before implementation work spreads the new term.",
+    "consequence_of_non_decision": "Terminology will drift across docs, prompts, and UI copy.",
+    "prompt": "Which term is changing, what is its canonical replacement, and which older synonyms should be treated as deprecated?"
+  },
+  "data_definition_integrity": {
+    "blocking": true,
+    "affected_artifacts": ["DATA_DICTIONARY.md", "ARCHITECTURE.md"],
+    "default_recommendation": "Define or update the data dictionary entry before adding new write paths or prompts.",
+    "consequence_of_non_decision": "Package generation and validation will rely on undefined or inconsistent data meaning.",
+    "prompt": "What field or entity meaning needs to become canonical, and what constraints or allowed values matter?"
+  },
+  "architecture_direction": {
+    "blocking": true,
+    "affected_artifacts": ["ARCHITECTURE.md", "docs/decisions/"],
+    "default_recommendation": "Capture the architecture choice in a decision record if it changes module ownership or boundaries.",
+    "consequence_of_non_decision": "Implementation may proceed on an implicit design choice that is expensive to reverse.",
+    "prompt": "What architecture boundary or ownership decision is changing, and which modules are affected?"
+  },
+  "governance_posture": {
+    "blocking": true,
+    "affected_artifacts": ["RISKS.md", "ASSUMPTIONS.md", "PLAN.md"],
+    "default_recommendation": "Record the constraint before automating the affected workflow.",
+    "consequence_of_non_decision": "The platform could automate a flow that violates the intended governance posture.",
+    "prompt": "What governance or approval constraint must the system respect before continuing?"
+  },
+  "handoff_quality": {
+    "blocking": false,
+    "affected_artifacts": ["prompts/templates/plan-package.md", "prompts/templates/execution-package.md"],
+    "default_recommendation": "Keep the handoff shape tranche-scoped and derived from validated repository truth.",
+    "consequence_of_non_decision": "Codex handoffs may become weaker or more ambiguous without obvious breakage.",
+    "prompt": "What aspect of the plan or execution package needs to become more explicit for Codex?"
+  },
+  "bounded_change": {
+    "blocking": false,
+    "affected_artifacts": ["PLAN.md", "BACKLOG.md"],
+    "default_recommendation": "Treat the request as a bounded change inside the current architecture until stronger evidence appears.",
+    "consequence_of_non_decision": "The request may move forward without surfacing deeper product or architecture implications.",
+    "prompt": "What outcome should this change produce, and which current tranche or workflow does it belong to?"
+  }
+}
