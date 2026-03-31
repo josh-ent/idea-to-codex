@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { createLogger, logOperation } from "../../runtime/logging.js";
+import { workspaceStatePath as runtimeWorkspaceStatePath } from "../../runtime/state-paths.js";
 import { bootstrapRepository, validateRepository } from "../artifacts/repository.js";
 import { getRepositoryState, initializeGitRepository } from "../artifacts/git.js";
 
@@ -317,18 +317,7 @@ async function writeWorkspaceState(
 }
 
 function workspaceStatePath(studioRoot: string, options: ProjectServiceOptions): string {
-  const stateDir = options.stateDir
-    ? path.resolve(options.stateDir)
-    : process.env.IDEA_TO_CODEX_STATE_DIR
-      ? path.resolve(process.env.IDEA_TO_CODEX_STATE_DIR)
-      : path.join(os.homedir(), ".idea-to-codex");
-
-  return path.join(stateDir, workspaceStateFileName(studioRoot));
-}
-
-function workspaceStateFileName(studioRoot: string): string {
-  const studioName = path.basename(studioRoot) || "studio";
-  return `${studioName}-workspace.json`;
+  return runtimeWorkspaceStatePath(studioRoot, options.stateDir);
 }
 
 function resolveProjectPath(studioRoot: string, projectPath: string): string {

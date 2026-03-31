@@ -113,6 +113,7 @@ If v1 cannot do that cleanly, the platform is not yet working.
 - no `MISSION.md` because it would duplicate `PROJECT_AIMS.md`;
 - no global `ACCEPTANCE_CRITERIA.md`; acceptance belongs on tranche records and handoff packages;
 - no database-backed truth store;
+- SQLite-backed logging is allowed as an observability store only and never as project truth;
 - no hosted collaboration model;
 - no full multi-project workspace model beyond one active local project.
 

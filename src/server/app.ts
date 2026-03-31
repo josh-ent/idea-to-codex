@@ -4,7 +4,9 @@ import path from "node:path";
 
 import {
   createLogger,
+  initializeLogging,
   generateRequestId,
+  subscribeToLogEvents,
   summarizeError,
   withLogContext,
 } from "../runtime/logging.js";
@@ -21,6 +23,12 @@ import {
   isIntakeError,
   toStructuredErrorPayload,
 } from "../modules/intake/errors.js";
+import {
+  matchesLiveLogEventQuery,
+  parseLiveLogEventQuery,
+  queryLogEvents,
+  readLogEvent,
+} from "../modules/logs/service.js";
 import {
   analyzeRequest,
   type IntakeAnalysisClient,
@@ -50,14 +58,19 @@ export interface ServerAppOptions extends ProjectServiceOptions {
 }
 
 export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
+  initializeLogging({ stateDir: options.stateDir });
+
   const app = express();
   const webDistPath = path.join(studioRoot, "web/dist");
   const webIndexPath = path.join(webDistPath, "index.html");
+  const logsWebDistPath = path.join(studioRoot, "logs-web/dist");
+  const logsWebIndexPath = path.join(logsWebDistPath, "index.html");
 
   app.use(express.json());
   app.use((request, response, next) => {
     const requestId = generateRequestId();
     const requestPath = request.originalUrl || request.path;
+    const skipRequestLogging = isLoggingEnginePath(requestPath);
     const requestLogger = logger.child("request", {
       request_id: requestId,
       request_method: request.method,
@@ -67,6 +80,10 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     let responseFinished = false;
 
     response.on("finish", () => {
+      if (skipRequestLogging) {
+        return;
+      }
+
       responseFinished = true;
       requestLogger.info("request completed", {
         duration_ms: Date.now() - startedAt,
@@ -76,6 +93,10 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     });
 
     response.on("close", () => {
+      if (skipRequestLogging) {
+        return;
+      }
+
       if (!responseFinished) {
         requestLogger.warn("request closed before completion", {
           duration_ms: Date.now() - startedAt,
@@ -91,7 +112,9 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
         request_path: requestPath,
       },
       () => {
-        requestLogger.debug("request received", summarizeRequest(request));
+        if (!skipRequestLogging) {
+          requestLogger.debug("request received", summarizeRequest(request));
+        }
         next();
       },
     );
@@ -262,6 +285,67 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     }
   });
 
+  app.get("/api/logs/events", (request, response, next) => {
+    try {
+      response.status(200).json(queryLogEvents(request.query as Record<string, unknown>));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/logs/events/:eventId", (request, response, next) => {
+    try {
+      const eventId = Number(request.params.eventId);
+
+      if (!Number.isFinite(eventId)) {
+        response.status(400).json({
+          error_code: "invalid_log_event_id",
+          message: "event id must be a number",
+          retryable: false,
+        });
+        return;
+      }
+
+      const event = readLogEvent(eventId);
+
+      if (!event) {
+        response.status(404).json({
+          error_code: "log_event_not_found",
+          message: `Unknown log event: ${request.params.eventId}`,
+          retryable: false,
+        });
+        return;
+      }
+
+      response.status(200).json(event);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/logs/stream", (request, response) => {
+    const query = parseLiveLogEventQuery(request.query as Record<string, unknown>);
+
+    response.setHeader("Content-Type", "text/event-stream");
+    response.setHeader("Cache-Control", "no-cache, no-transform");
+    response.setHeader("Connection", "keep-alive");
+    response.flushHeaders?.();
+    response.write(": connected\n\n");
+
+    const unsubscribe = subscribeToLogEvents((event) => {
+      if (!matchesLiveLogEventQuery(event, query)) {
+        return;
+      }
+
+      response.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+
+    request.on("close", () => {
+      unsubscribe();
+      response.end();
+    });
+  });
+
   app.get("/api/proposals", async (_request, response, next) => {
     try {
       const projectRoot = await requireActiveProjectRoot(studioRoot, options);
@@ -335,10 +419,17 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     }
   });
 
+  if (fs.existsSync(logsWebDistPath)) {
+    app.use("/logs", express.static(logsWebDistPath, { redirect: false }));
+    app.get(/^\/logs(?:\/.*)?$/, (_request, response) => {
+      response.sendFile(logsWebIndexPath);
+    });
+  }
+
   if (fs.existsSync(webDistPath)) {
     app.use(express.static(webDistPath));
 
-    app.get(/^\/(?!api).*/, (_request, response) => {
+    app.get(/^\/(?!api|logs(?:\/|$)).*/, (_request, response) => {
       response.sendFile(webIndexPath);
     });
   }
@@ -352,13 +443,16 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     ) => {
       const statusCode = isIntakeError(error) ? error.status : 500;
       const errorCode = isIntakeError(error) ? error.code : "internal_error";
+      const requestPath = request.originalUrl || request.path;
 
-      logger.error("request failed", {
-        ...summarizeRequest(request),
-        error_code: errorCode,
-        status_code: statusCode,
-        ...summarizeError(error),
-      });
+      if (!isLoggingEnginePath(requestPath)) {
+        logger.error("request failed", {
+          ...summarizeRequest(request),
+          error_code: errorCode,
+          status_code: statusCode,
+          ...summarizeError(error),
+        });
+      }
 
       if (isIntakeError(error)) {
         response.status(statusCode).json(toStructuredErrorPayload(error));
@@ -428,6 +522,16 @@ function unavailableRepositoryState() {
     is_dirty: false,
     is_main_branch: false,
   };
+}
+
+function isLoggingEnginePath(requestPath: string): boolean {
+  const pathWithoutQuery = requestPath.split("?", 1)[0] ?? requestPath;
+
+  return (
+    pathWithoutQuery === "/logs" ||
+    pathWithoutQuery.startsWith("/logs/") ||
+    pathWithoutQuery.startsWith("/api/logs")
+  );
 }
 
 function summarizeRequest(request: express.Request) {

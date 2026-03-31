@@ -81,6 +81,24 @@
 - Related entities: `Tranche`, `Handoff Package`
 - Notes / usage constraints: The console depends on backend truth; it does not replace it.
 
+## Log Event
+
+- Canonical name: `Log Event`
+- Allowed aliases: `log entry`
+- Definition: One persisted backend logging record with a timestamp, level, scope, message, request context, project context, and structured payload.
+- Disallowed or deprecated synonyms: `raw line`
+- Related entities: `Log Viewer`, `Operator Console`
+- Notes / usage constraints: `Log Event` records are observability data only and do not become project truth.
+
+## Log Viewer
+
+- Canonical name: `Log Viewer`
+- Allowed aliases: `logs app`
+- Definition: The dedicated read-only frontend used to tail, search, and inspect persisted backend log events.
+- Disallowed or deprecated synonyms: `ops dashboard`
+- Related entities: `Log Event`, `Operator Console`
+- Notes / usage constraints: The `Log Viewer` is separate from the `Operator Console` and is optimized for observability rather than truth mutation.
+
 ## Actor
 
 - Canonical name: `Actor`

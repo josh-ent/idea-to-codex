@@ -18,6 +18,7 @@
     "src/**/*.ts",
     "test/**/*.ts",
     "test/**/*.d.ts",
-    "web/src/**/*.d.ts"
+    "web/src/**/*.d.ts",
+    "logs-web/src/**/*.d.ts"
   ]
 }

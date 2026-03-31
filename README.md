@@ -53,15 +53,22 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run proposal:reject -- <PROPOSAL_ID>` rejects one proposal draft without mutating its target artefact.
 - `npm run dev` starts the backend server.
 - `npm run dev:web` starts the Vue.js operator console in development.
+- `npm run dev:logs-web` starts the dedicated log viewer in development.
 - `npm run test` runs the automated tests.
 
 ## Backend logging
 
-- Backend logs write to stderr with timestamps, scope labels, request ids, and operation durations.
+- Backend logs now flow through one backend-owned logging pipeline.
+- The pipeline writes readable stderr output and also persists Studio-wide `Log Event` records into SQLite.
+- The SQLite database is used only for logging and lives at `logs.sqlite` inside the backend state directory by default.
+- The dedicated log viewer is served at `/logs` and queries the persisted log store through `/api/logs/...`.
+- stderr defaults to the pretty tabular renderer with fixed columns for timestamp, level, scope, request id, and project root.
 - Development defaults to full verbosity with `trace` level logging.
 - Production defaults to `info`.
 - Test runs default to `error` to keep automated output readable.
 - Override the level with `IDEA_TO_CODEX_LOG_LEVEL=trace|debug|info|warn|error|silent` or `LOG_LEVEL=...`.
+- Override stderr formatting with `IDEA_TO_CODEX_LOG_FORMAT=pretty|json`.
+- Override the log database path with `IDEA_TO_CODEX_LOG_DB_PATH=/path/to/logs.sqlite`.
 
 ## Intake analysis
 
@@ -76,5 +83,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 
 - Start the backend with `npm run dev`.
 - Start the console with `npm run dev:web`.
+- Start the log viewer with `npm run dev:logs-web` when you want the dedicated log search and tailing surface.
 - Open the operator console and create a new managed project or open an existing local project path.
+- Open `/logs` for the dedicated log viewer.
 - After a project is selected, the console operates on that managed repository rather than on the Studio repo.

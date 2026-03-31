@@ -3,6 +3,7 @@ import {
   collectValidationErrors,
   validateRepository,
 } from "./modules/artifacts/repository.js";
+import { initializeLogging } from "./runtime/logging.js";
 import { generateReview } from "./modules/governance/review.js";
 import { generatePackage, refreshPackageSet } from "./modules/packaging/service.js";
 import {
@@ -16,6 +17,8 @@ import { resolveIntakeAnalysis } from "./modules/intake/service.js";
 import type { IntakeAnalysis } from "./modules/intake/contract.js";
 
 async function main() {
+  initializeLogging();
+
   const [command, ...args] = process.argv.slice(2);
 
   if (command === "bootstrap") {

@@ -11,10 +11,12 @@ This document describes the current system structure.
 ## Current implementation shape
 
 - A Node backend owns managed-project selection, file-backed bootstrap, validation, model-backed intake analysis, review checkpoint generation, traceability, and package assembly.
+- The backend also owns logging ingestion, SQLite-backed `Log Event` storage, and log query APIs.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
 - Workflow critique now uses durable `Actor`, `Use Case`, goal, and constraint fields on workflow-scoped tranches and reuses that context in review and package generation.
 - A Vue.js + Pinia + PrimeVue operator console sits on top of the backend and stays thin: it inspects truth, generates proposal sets, and approves or rejects draft writes.
+- A second dedicated frontend app at `/logs` provides read-only log viewing, search, and live tailing against the backend log store.
 
 ## Module boundaries
 
@@ -23,16 +25,19 @@ This document describes the current system structure.
 - `intake`: canonical request normalization, context loading, model-backed intake analysis, contract validation, and analysis reuse checks.
 - `llm`: the small OpenAI structured-output adapter used by intake analysis.
 - `packaging`: plan and execution package assembly from validated repo truth.
+- `logs`: query contract and service logic for persisted backend log events.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.
 - `traceability`: explicit links between tranches, decisions, packages, reviews, and affected artefacts.
 - `server`: HTTP routes for project selection, status, bootstrap, package generation, intake analysis, review checkpoints, and proposal workflows.
 - `ui`: the operator console for status inspection, intake analysis, proposal review, package generation, and checkpoint generation.
+- `logs-web`: the dedicated log viewer frontend for read-only log inspection and search.
 
 ## Durable file contract
 
 - Top-level documents define stable project truth such as architecture, glossary, assumptions, risks, and backlog.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
+- SQLite is used only for observability logs and is not a project-truth store.
 
 ## Canonical loop
 
