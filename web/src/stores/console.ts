@@ -458,6 +458,50 @@ export const useConsoleStore = defineStore("console", () => {
     blockingQuestions.value.some((question) => !intakeAnswers.value[question.id]?.trim()),
   );
 
+  const activeProject = computed(() => status.value?.project.active_project ?? null);
+
+  const knownProjects = computed(() => status.value?.project.known_projects ?? []);
+
+  const validationIssueCount = computed(() => status.value?.errors.length ?? 0);
+
+  const openQuestionCount = computed(
+    () => status.value?.validation.openQuestions.length ?? 0,
+  );
+
+  const repositoryDetails = computed(() => {
+    const repositoryState = status.value?.repository_state;
+
+    if (!repositoryState) {
+      return {
+        available: false,
+        branch: null,
+        head: null,
+        shortHead: null,
+        dirtyFileCount: 0,
+        isDirty: false,
+      };
+    }
+
+    return {
+      available: repositoryState.available,
+      branch: repositoryState.branch,
+      head: repositoryState.head,
+      shortHead:
+        typeof repositoryState.head === "string" ? repositoryState.head.slice(0, 8) : null,
+      dirtyFileCount: repositoryState.dirty_paths.length,
+      isDirty: repositoryState.is_dirty,
+    };
+  });
+
+  const repositoryRecordCounts = computed(() => ({
+    tranches: status.value?.validation.tranches.length ?? 0,
+    decisions: status.value?.validation.decisions.length ?? 0,
+    reviews: status.value?.validation.reviews.length ?? 0,
+    glossaryTerms: status.value?.validation.glossaryTerms.length ?? 0,
+    planPackages: status.value?.validation.planPackages.length ?? 0,
+    executionPackages: status.value?.validation.executionPackages.length ?? 0,
+  }));
+
   const reviewPackageRegenerationIds = computed(() => {
     const review = generatedReview.value;
 
@@ -511,6 +555,12 @@ export const useConsoleStore = defineStore("console", () => {
     reviewPackageRegenerationIds,
     canGenerateReviewFollowUp,
     hasActiveProject,
+    activeProject,
+    knownProjects,
+    validationIssueCount,
+    openQuestionCount,
+    repositoryDetails,
+    repositoryRecordCounts,
     loadStatus,
     loadProposalQueue,
     loadProposalSet,

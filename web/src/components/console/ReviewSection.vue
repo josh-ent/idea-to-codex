@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import Button from "primevue/button";
-import Card from "primevue/card";
 import Tag from "primevue/tag";
 
 import { useConsoleStore } from "../../stores/console";
@@ -11,42 +10,37 @@ const store = useConsoleStore();
 
 <template>
   <section class="screen-grid screen-grid--package">
-    <Card v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
-      <template #title>Review Checkpoint</template>
-      <template #content>
-        <div class="empty-state">
-          <h3>Select a project before generating review checkpoints.</h3>
-          <p>
-            Review output is derived from the active managed repository. Activate a project in
-            the workspace screen first.
-          </p>
-        </div>
-      </template>
-    </Card>
+    <div v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
+      <div class="empty-state">
+        <h3>Select a project before generating review checkpoints.</h3>
+        <p>Review output always comes from the active managed repository.</p>
+      </div>
+    </div>
 
     <template v-else>
-      <Card class="panel panel--controls">
-        <template #title>Review Checkpoint</template>
-        <template #content>
+      <div class="detail-grid panel--full">
+        <article class="record-card">
+          <div class="section-heading">
+            <h3>Checkpoint</h3>
+          </div>
+
           <div class="panel-flow">
-            <TrancheSelect
-              v-model="store.selectedTrancheId"
-              :options="store.trancheOptions"
-            />
+            <TrancheSelect v-model="store.selectedTrancheId" :options="store.trancheOptions" />
 
             <Button
-              label="Generate And Persist"
+              label="Generate and persist"
               icon="pi pi-check-square"
               :loading="store.isGeneratingReview"
               @click="store.generateReviewCheckpoint"
             />
           </div>
-        </template>
-      </Card>
+        </article>
 
-      <Card class="panel panel--detail">
-        <template #title>Review Output</template>
-        <template #content>
+        <article class="record-card">
+          <div class="section-heading">
+            <h3>Output</h3>
+          </div>
+
           <div v-if="store.generatedReview" class="panel-flow">
             <div class="package-output__meta">
               <Tag
@@ -61,10 +55,7 @@ const store = useConsoleStore();
               <span>{{ store.generatedReview.path }}</span>
             </div>
 
-            <div
-              v-if="store.reviewPackageRegenerationIds.length > 0"
-              class="panel-actions"
-            >
+            <div v-if="store.reviewPackageRegenerationIds.length > 0" class="panel-actions">
               <Button
                 v-for="packageId in store.reviewPackageRegenerationIds"
                 :key="packageId"
@@ -83,7 +74,7 @@ const store = useConsoleStore();
 
             <div v-if="store.canGenerateReviewFollowUp" class="panel-actions">
               <Button
-                label="Generate Review Follow-up"
+                label="Generate follow-up"
                 icon="pi pi-sparkles"
                 size="small"
                 severity="secondary"
@@ -96,10 +87,7 @@ const store = useConsoleStore();
               />
             </div>
 
-            <div
-              v-if="store.generatedReview.record.missing_package_types.length > 0"
-              class="panel-actions"
-            >
+            <div v-if="store.generatedReview.record.missing_package_types.length > 0" class="panel-actions">
               <Button
                 v-for="packageType in store.generatedReview.record.missing_package_types"
                 :key="packageType"
@@ -121,10 +109,10 @@ const store = useConsoleStore();
 
           <div v-else class="empty-state">
             <h3>No review checkpoint yet.</h3>
-            <p>Generate a checkpoint to inspect drift signals, missing packages, and follow-up actions.</p>
+            <p>Generate a checkpoint to inspect drift, package coverage, and follow-up actions.</p>
           </div>
-        </template>
-      </Card>
+        </article>
+      </div>
     </template>
   </section>
 </template>

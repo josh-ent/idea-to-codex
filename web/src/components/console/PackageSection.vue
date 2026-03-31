@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import Button from "primevue/button";
-import Card from "primevue/card";
 import SelectButton from "primevue/selectbutton";
 import Tag from "primevue/tag";
 
@@ -17,28 +16,22 @@ const packageOptions = [
 
 <template>
   <section class="screen-grid screen-grid--package">
-    <Card v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
-      <template #title>Package Generation</template>
-      <template #content>
-        <div class="empty-state">
-          <h3>Select a project before generating packages.</h3>
-          <p>
-            Packages are derived from repository truth in the active managed project. Choose a
-            project in the workspace screen first.
-          </p>
-        </div>
-      </template>
-    </Card>
+    <div v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
+      <div class="empty-state">
+        <h3>Select a project before generating packages.</h3>
+        <p>Packages come from repository truth in the active managed project.</p>
+      </div>
+    </div>
 
     <template v-else>
-      <Card class="panel panel--controls">
-        <template #title>Package Generation</template>
-        <template #content>
+      <div class="detail-grid panel--full">
+        <article class="record-card">
+          <div class="section-heading">
+            <h3>Controls</h3>
+          </div>
+
           <div class="panel-flow">
-            <TrancheSelect
-              v-model="store.selectedTrancheId"
-              :options="store.trancheOptions"
-            />
+            <TrancheSelect v-model="store.selectedTrancheId" :options="store.trancheOptions" />
 
             <label class="control control--wide">
               <span>Package type</span>
@@ -53,35 +46,28 @@ const packageOptions = [
 
             <div class="panel-actions">
               <Button
-                label="Generate And Persist"
+                label="Generate and persist"
                 icon="pi pi-bolt"
                 :loading="store.isGeneratingPackage"
                 @click="store.generateSelectedPackage"
               />
 
               <Button
-                label="Refresh Package Set"
+                label="Refresh package set"
                 icon="pi pi-sync"
                 severity="secondary"
                 :loading="store.isRefreshingPackageSet"
                 @click="store.refreshSelectedPackageSet"
               />
             </div>
-
-            <div class="record-card record-card--info">
-              <h3>Desktop rule</h3>
-              <p>
-                Long package content stays inside bounded code panes so the primary screen stays
-                within the viewport.
-              </p>
-            </div>
           </div>
-        </template>
-      </Card>
+        </article>
 
-      <Card class="panel panel--detail">
-        <template #title>Generated Output</template>
-        <template #content>
+        <article class="record-card">
+          <div class="section-heading">
+            <h3>Output</h3>
+          </div>
+
           <div v-if="store.generatedPackage" class="panel-flow">
             <div class="package-output__meta">
               <Tag :value="store.generatedPackage.record.type" severity="success" />
@@ -91,7 +77,7 @@ const packageOptions = [
             <pre>{{ store.generatedPackage.content }}</pre>
           </div>
 
-          <div v-else-if="store.generatedPackageSet" class="record-list record-list--scroll">
+          <div v-else-if="store.generatedPackageSet" class="record-list">
             <article
               v-for="pkg in store.generatedPackageSet.packages"
               :key="pkg.id"
@@ -108,10 +94,10 @@ const packageOptions = [
 
           <div v-else class="empty-state">
             <h3>No package output yet.</h3>
-            <p>Select a tranche and generate a package or refresh the full package set.</p>
+            <p>Select a tranche and generate a handoff package.</p>
           </div>
-        </template>
-      </Card>
+        </article>
+      </div>
     </template>
   </section>
 </template>

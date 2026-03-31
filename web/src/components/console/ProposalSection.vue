@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import Button from "primevue/button";
-import Card from "primevue/card";
 import Tag from "primevue/tag";
 
 import { useConsoleStore } from "../../stores/console";
@@ -10,39 +9,38 @@ const store = useConsoleStore();
 
 <template>
   <section class="screen-grid screen-grid--proposal">
-    <Card v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
-      <template #title>Proposal Queue</template>
-      <template #content>
-        <div class="empty-state">
-          <h3>Select a project before reviewing proposals.</h3>
-          <p>
-            Proposal sets are tied to the active managed repository. Activate a project in the
-            workspace screen first.
-          </p>
-        </div>
-      </template>
-    </Card>
+    <div v-if="!store.hasActiveProject" class="panel panel--empty panel--full">
+      <div class="empty-state">
+        <h3>Select a project before reviewing proposals.</h3>
+        <p>Proposal sets belong to the active managed repository.</p>
+      </div>
+    </div>
 
     <template v-else>
-      <Card class="panel">
-        <template #title>Proposal Queue</template>
-        <template #content>
-          <div class="panel-actions">
-            <Button
-              label="Refresh Proposals"
-              icon="pi pi-refresh"
-              :loading="store.isLoadingProposals"
-              @click="() => store.loadProposalQueue()"
-            />
-            <Button
-              label="Generate Review Follow-up"
-              icon="pi pi-sparkles"
-              :loading="store.isGeneratingProposal"
-              @click="store.generateReviewProposalSetForSelectedTranche"
-            />
+      <div class="detail-grid panel--full">
+        <article class="record-card">
+          <div class="section-heading">
+            <div>
+              <h3>Queue</h3>
+              <small>{{ store.proposalSets.length }} set(s)</small>
+            </div>
+            <div class="panel-actions">
+              <Button
+                label="Refresh queue"
+                icon="pi pi-refresh"
+                :loading="store.isLoadingProposals"
+                @click="() => store.loadProposalQueue()"
+              />
+              <Button
+                label="Generate follow-up"
+                icon="pi pi-sparkles"
+                :loading="store.isGeneratingProposal"
+                @click="store.generateReviewProposalSetForSelectedTranche"
+              />
+            </div>
           </div>
 
-          <div class="record-list record-list--scroll">
+          <div class="record-list">
             <article
               v-for="proposal in store.proposalSets"
               :key="proposal.id"
@@ -66,15 +64,16 @@ const store = useConsoleStore();
 
             <article v-if="store.proposalSets.length === 0" class="record-card record-card--empty">
               <h3>No proposal sets yet.</h3>
-              <p>Generate an intake or review proposal set to start approval-gated truth mutation.</p>
+              <p>Run intake or review follow-up generation to create a draft set.</p>
             </article>
           </div>
-        </template>
-      </Card>
+        </article>
 
-      <Card class="panel panel--detail">
-        <template #title>Proposal Detail</template>
-        <template #content>
+        <article class="record-card">
+          <div class="section-heading">
+            <h3>Selected set</h3>
+          </div>
+
           <div v-if="store.selectedProposalSet" class="panel-flow">
             <div class="package-output__meta">
               <Tag :value="store.selectedProposalSet.record.status" />
@@ -82,19 +81,10 @@ const store = useConsoleStore();
               <span>{{ store.selectedProposalSet.relativePath }}</span>
             </div>
 
-            <div class="detail-grid">
-              <div class="record-card">
-                <h3>Summary</h3>
-                <p>{{ store.selectedProposalSet.summary }}</p>
-              </div>
+            <p>{{ store.selectedProposalSet.summary }}</p>
+            <pre>{{ store.selectedProposalSet.sourceContext }}</pre>
 
-              <div class="record-card">
-                <h3>Source Context</h3>
-                <pre>{{ store.selectedProposalSet.sourceContext }}</pre>
-              </div>
-            </div>
-
-            <div class="record-list record-list--scroll">
+            <div class="record-list">
               <article
                 v-for="draft in store.selectedProposalSet.drafts"
                 :key="draft.id"
@@ -106,16 +96,7 @@ const store = useConsoleStore();
                 </div>
                 <p>{{ draft.summary }}</p>
                 <small>{{ draft.record.target_artifact }}</small>
-                <div class="detail-grid detail-grid--two">
-                  <div>
-                    <h4>Source Context</h4>
-                    <pre>{{ draft.sourceContext }}</pre>
-                  </div>
-                  <div>
-                    <h4>Proposed Content</h4>
-                    <pre>{{ draft.proposedContent }}</pre>
-                  </div>
-                </div>
+                <pre>{{ draft.proposedContent }}</pre>
                 <div class="panel-actions">
                   <Button
                     label="Approve"
@@ -139,10 +120,10 @@ const store = useConsoleStore();
 
           <div v-else class="empty-state">
             <h3>No proposal set selected.</h3>
-            <p>Pick a proposal set from the queue to inspect its draft mutations.</p>
+            <p>Open a set from the queue to inspect the drafts and approve or reject them.</p>
           </div>
-        </template>
-      </Card>
+        </article>
+      </div>
     </template>
   </section>
 </template>
