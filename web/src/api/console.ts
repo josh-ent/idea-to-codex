@@ -13,7 +13,20 @@ export interface TraceLink {
   reason: string;
 }
 
+export interface ProjectSummary {
+  name: string;
+  path: string;
+  is_git_repository: boolean;
+  is_active: boolean;
+}
+
+export interface ProjectWorkspacePayload {
+  active_project: ProjectSummary | null;
+  known_projects: ProjectSummary[];
+}
+
 export interface StatusPayload {
+  project: ProjectWorkspacePayload;
   repository_state: {
     available: boolean;
     branch: string | null;
@@ -39,6 +52,10 @@ export interface StatusPayload {
   };
   errors: string[];
 }
+
+export interface CreateProjectPayload extends ProjectWorkspacePayload {}
+
+export interface OpenProjectPayload extends ProjectWorkspacePayload {}
 
 export interface PackagePayload {
   id: string;

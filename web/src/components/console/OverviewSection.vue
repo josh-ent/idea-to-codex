@@ -10,68 +10,174 @@ const store = useConsoleStore();
 
 <template>
   <section class="hero">
-      <div class="hero__copy">
-        <p class="eyebrow">Operator Console</p>
-        <h1>Repository truth first. Codex handoffs second.</h1>
-        <p class="hero__lede">
-          This console stays narrow on purpose: inspect the current project truth,
-          check drift signals, approve durable truth updates, and generate Codex
-          handoff packages without inventing a second workflow system.
-        </p>
-      </div>
+    <div class="hero__copy">
+      <p class="eyebrow">Operator Console</p>
+      <h1>Repository truth first. Codex handoffs second.</h1>
+      <p class="hero__lede">
+        This console stays narrow on purpose: inspect the current project truth,
+        check drift signals, approve durable truth updates, and generate Codex
+        handoff packages without inventing a second workflow system.
+      </p>
+    </div>
 
-      <div class="hero__meta">
-        <Card>
-          <template #content>
-            <div class="metric-grid">
-              <div>
-                <span class="metric-label">Decisions</span>
-                <strong>{{ store.status?.validation.decisions.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Tranches</span>
-                <strong>{{ store.status?.validation.tranches.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Open Questions</span>
-                <strong>{{ store.status?.validation.openQuestions.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Trace Links</span>
-                <strong>{{ store.status?.validation.traceLinks.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Review Checkpoints</span>
-                <strong>{{ store.status?.validation.reviews.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Proposal Sets</span>
-                <strong>{{ store.status?.validation.proposalSets.length ?? 0 }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Branch</span>
-                <strong>{{ store.status?.repository_state.branch ?? "n/a" }}</strong>
-              </div>
-              <div>
-                <span class="metric-label">Repo State</span>
-                <strong>
-                  {{
-                    store.status?.repository_state.available
-                      ? store.status?.repository_state.is_dirty
-                        ? "Dirty"
-                        : "Clean"
-                      : "Unavailable"
-                  }}
-                </strong>
-              </div>
+    <div class="hero__meta">
+      <Card>
+        <template #content>
+          <div class="metric-grid">
+            <div>
+              <span class="metric-label">Active Project</span>
+              <strong>{{ store.status?.project.active_project?.name ?? "None" }}</strong>
             </div>
-          </template>
-        </Card>
-      </div>
+            <div>
+              <span class="metric-label">Known Projects</span>
+              <strong>{{ store.status?.project.known_projects.length ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Decisions</span>
+              <strong>{{ store.status?.validation.decisions.length ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Tranches</span>
+              <strong>{{ store.status?.validation.tranches.length ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Proposal Sets</span>
+              <strong>{{ store.status?.validation.proposalSets.length ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Review Checkpoints</span>
+              <strong>{{ store.status?.validation.reviews.length ?? 0 }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Branch</span>
+              <strong>{{ store.status?.repository_state.branch ?? "n/a" }}</strong>
+            </div>
+            <div>
+              <span class="metric-label">Repo State</span>
+              <strong>
+                {{
+                  store.status?.repository_state.available
+                    ? store.status?.repository_state.is_dirty
+                      ? "Dirty"
+                      : "Clean"
+                    : "Unavailable"
+                }}
+              </strong>
+            </div>
+          </div>
+        </template>
+      </Card>
+    </div>
   </section>
 
   <section class="grid">
-      <Card class="panel panel--overview">
+    <Card class="panel panel--overview">
+      <template #title>Project Workspace</template>
+      <template #content>
+        <div class="status-columns">
+          <div>
+            <h3>Active project</h3>
+            <div class="record-list">
+              <article class="record-card">
+                <div class="record-card__header">
+                  <h3>{{ store.status?.project.active_project?.name ?? "No active project" }}</h3>
+                  <Tag
+                    :value="store.status?.project.active_project ? 'selected' : 'required'"
+                    :severity="store.status?.project.active_project ? 'success' : 'warn'"
+                  />
+                </div>
+                <p>
+                  {{
+                    store.status?.project.active_project?.path ??
+                    "Create or open a project before using repository-governance features."
+                  }}
+                </p>
+                <small v-if="store.status?.project.active_project">
+                  Git repository:
+                  {{ store.status?.project.active_project.is_git_repository ? "yes" : "no" }}
+                </small>
+              </article>
+
+              <article
+                v-for="project in store.status?.project.known_projects ?? []"
+                :key="project.path"
+                class="record-card"
+              >
+                <div class="record-card__header">
+                  <h3>{{ project.name }}</h3>
+                  <Tag :value="project.is_active ? 'active' : 'known'" />
+                </div>
+                <p>{{ project.path }}</p>
+                <div class="panel-actions">
+                  <Button
+                    label="Open"
+                    size="small"
+                    text
+                    :disabled="project.is_active"
+                    :loading="store.isOpeningProject"
+                    @click="
+                      store.existingProjectPath = project.path;
+                      store.openManagedProject();
+                    "
+                  />
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div>
+            <h3>New project</h3>
+            <div class="record-list">
+              <label class="control control--wide">
+                <span>Project name</span>
+                <input
+                  v-model="store.newProjectName"
+                  class="control__input"
+                  placeholder="Example: Billing Console"
+                />
+              </label>
+              <label class="control control--wide">
+                <span>Project path</span>
+                <input
+                  v-model="store.newProjectPath"
+                  class="control__input"
+                  placeholder="../projects/billing-console"
+                />
+              </label>
+              <div class="panel-actions">
+                <Button
+                  label="Create Project"
+                  icon="pi pi-plus"
+                  :loading="store.isCreatingProject"
+                  @click="store.createManagedProject"
+                />
+              </div>
+
+              <h3>Open existing project</h3>
+              <label class="control control--wide">
+                <span>Existing project path</span>
+                <input
+                  v-model="store.existingProjectPath"
+                  class="control__input"
+                  placeholder="../projects/existing-project"
+                />
+              </label>
+              <div class="panel-actions">
+                <Button
+                  label="Open Project"
+                  icon="pi pi-folder-open"
+                  severity="secondary"
+                  :loading="store.isOpeningProject"
+                  @click="store.openManagedProject"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </Card>
+
+    <Card v-if="store.hasActiveProject" class="panel panel--overview">
         <template #title>Project Status</template>
         <template #content>
           <div class="panel-actions">
@@ -136,7 +242,7 @@ const store = useConsoleStore();
         </template>
       </Card>
 
-      <Card class="panel">
+      <Card v-if="store.hasActiveProject" class="panel">
         <template #title>Tranches</template>
         <template #content>
           <div class="record-list">
@@ -156,7 +262,7 @@ const store = useConsoleStore();
         </template>
       </Card>
 
-      <Card class="panel">
+      <Card v-if="store.hasActiveProject" class="panel">
         <template #title>Decisions</template>
         <template #content>
           <div class="record-list">
@@ -176,7 +282,7 @@ const store = useConsoleStore();
         </template>
       </Card>
 
-      <Card class="panel">
+      <Card v-if="store.hasActiveProject" class="panel">
         <template #title>Glossary Terms</template>
         <template #content>
           <div class="record-list">
@@ -196,7 +302,7 @@ const store = useConsoleStore();
         </template>
       </Card>
 
-      <Card class="panel">
+      <Card v-if="store.hasActiveProject" class="panel">
         <template #title>Review Checkpoints</template>
         <template #content>
           <div class="record-list">

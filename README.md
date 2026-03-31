@@ -8,6 +8,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 
 - establish the repository contract;
 - validate and bootstrap the durable artefact set;
+- manage one explicit active project instead of implicitly governing the Studio repo;
 - generate deterministic plan and execution packages from repository truth;
 - expose a Node backend and Vue.js operator console over that contract;
 - analyze vague requests into bounded intake outputs;
@@ -19,6 +20,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - detect stale persisted handoff packages when they drift from the current tranche truth.
 - offer direct package-regeneration actions from review output when stale handoffs are detected.
 - offer direct review-panel actions for missing package coverage.
+- create a new managed project repository or open an existing local project from the operator console.
 
 ## Core principles
 
@@ -38,7 +40,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 
 ## Scripts
 
-- `npm run bootstrap` creates any missing baseline artefacts and folders.
+- `npm run bootstrap` creates any missing baseline artefacts and folders in the current repository.
 - `npm run validate` validates the repository contract and record schemas.
 - `npm run package:plan -- <TRANCHE_ID>` generates a plan package snapshot.
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
@@ -51,3 +53,10 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run dev` starts the backend server.
 - `npm run dev:web` starts the Vue.js operator console in development.
 - `npm run test` runs the automated tests.
+
+## First use
+
+- Start the backend with `npm run dev`.
+- Start the console with `npm run dev:web`.
+- Open the operator console and create a new managed project or open an existing local project path.
+- After a project is selected, the console operates on that managed repository rather than on the Studio repo.

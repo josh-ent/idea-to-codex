@@ -201,6 +201,15 @@ body {
   font: inherit;
 }
 
+.control__input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(76, 96, 82, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  font: inherit;
+}
+
 .control__textarea {
   width: 100%;
   min-height: 9rem;

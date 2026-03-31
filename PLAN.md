@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-Build a single-repository, local-first specification and governance platform that treats repository artefacts as the operational source of truth and packages that truth into clean Codex handoffs.
+Build a single-active-project, local-first specification and governance platform that treats repository artefacts as the operational source of truth and packages that truth into clean Codex handoffs.
 
 The product is not a coding engine. It is a project truth engine.
 
@@ -114,7 +114,7 @@ If v1 cannot do that cleanly, the platform is not yet working.
 - no global `ACCEPTANCE_CRITERIA.md`; acceptance belongs on tranche records and handoff packages;
 - no database-backed truth store;
 - no hosted collaboration model;
-- no multi-project workspace model.
+- no full multi-project workspace model beyond one active local project.
 
 ### Storage conventions
 - Use Markdown with small YAML front matter for durable records.

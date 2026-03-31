@@ -14,8 +14,13 @@ import { useConsoleStore } from "./stores/console";
 const store = useConsoleStore();
 
 onMounted(() => {
-  void store.loadStatus();
-  void store.loadProposalQueue();
+  void (async () => {
+    await store.loadStatus();
+
+    if (store.hasActiveProject) {
+      await store.loadProposalQueue();
+    }
+  })();
 });
 </script>
 
@@ -27,16 +32,18 @@ onMounted(() => {
       {{ store.lastError }}
     </Message>
 
-    <Divider />
-    <IntakeSection />
+    <template v-if="store.hasActiveProject">
+      <Divider />
+      <IntakeSection />
 
-    <Divider />
-    <ProposalSection />
+      <Divider />
+      <ProposalSection />
 
-    <Divider />
-    <PackageSection />
+      <Divider />
+      <PackageSection />
 
-    <Divider />
-    <ReviewSection />
+      <Divider />
+      <ReviewSection />
+    </template>
   </main>
 </template>

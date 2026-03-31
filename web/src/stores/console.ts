@@ -1,7 +1,9 @@
 import { computed, ref, type Ref } from "vue";
 import { defineStore } from "pinia";
 import {
+  type CreateProjectPayload,
   getJson,
+  type OpenProjectPayload,
   postJson,
   type IntakeAnalysis,
   type PackagePayload,
@@ -35,10 +37,15 @@ export const useConsoleStore = defineStore("console", () => {
   const generatedPackage = ref<PackagePayload | null>(null);
   const generatedPackageSet = ref<PackageSetPayload | null>(null);
   const generatedReview = ref<ReviewPayload | null>(null);
+  const newProjectName = ref("");
+  const newProjectPath = ref("");
+  const existingProjectPath = ref("");
   const intakeRequest = ref("");
   const intakeAnalysis = ref<IntakeAnalysis | null>(null);
   const intakeAnswers = ref<Record<string, string>>({});
   const lastError = ref<string>("");
+  const isCreatingProject = ref(false);
+  const isOpeningProject = ref(false);
 
   async function loadStatus(options: { clearError?: boolean } = {}) {
     isLoading.value = true;
@@ -49,6 +56,9 @@ export const useConsoleStore = defineStore("console", () => {
 
     try {
       status.value = await getJson<StatusPayload>("/api/status");
+      if (!status.value.project.active_project) {
+        resetProjectScopedState();
+      }
       ensureSelectedTranche();
     } catch (error) {
       setTaskError(error, "status request failed");
@@ -58,6 +68,13 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   async function loadProposalQueue(options: { clearError?: boolean } = {}) {
+    if (!status.value?.project.active_project) {
+      proposalSets.value = [];
+      selectedProposalSet.value = null;
+      selectedProposalSetId.value = "";
+      return;
+    }
+
     isLoadingProposals.value = true;
 
     if (options.clearError !== false) {
@@ -84,6 +101,11 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   async function loadProposalSet(proposalSetId: string) {
+    if (!status.value?.project.active_project) {
+      selectedProposalSet.value = null;
+      return;
+    }
+
     if (!proposalSetId) {
       selectedProposalSet.value = null;
       return;
@@ -107,6 +129,42 @@ export const useConsoleStore = defineStore("console", () => {
     if (trancheId) {
       await generatePackageFor(packageType.value, trancheId);
     }
+  }
+
+  async function createManagedProject() {
+    if (!newProjectName.value.trim()) {
+      lastError.value = "Enter a project name before creating a new project.";
+      return;
+    }
+
+    if (!newProjectPath.value.trim()) {
+      lastError.value = "Enter a project path before creating a new project.";
+      return;
+    }
+
+    await runTask(isCreatingProject, "project creation failed", async () => {
+      await postJson<CreateProjectPayload>("/api/projects/create", {
+        project_name: newProjectName.value,
+        project_path: newProjectPath.value,
+        initialize_git: true,
+      });
+      existingProjectPath.value = "";
+      await refreshAfterProjectSwitch();
+    });
+  }
+
+  async function openManagedProject() {
+    if (!existingProjectPath.value.trim()) {
+      lastError.value = "Enter a project path before opening a project.";
+      return;
+    }
+
+    await runTask(isOpeningProject, "project open failed", async () => {
+      await postJson<OpenProjectPayload>("/api/projects/open", {
+        project_path: existingProjectPath.value,
+      });
+      await refreshAfterProjectSwitch();
+    });
   }
 
   async function generatePackageFor(
@@ -286,6 +344,11 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   function ensureSelectedTranche() {
+    if (!status.value?.project.active_project) {
+      selectedTrancheId.value = "";
+      return;
+    }
+
     const firstTranche = status.value?.validation.tranches[0]?.frontmatter?.id;
 
     if (!selectedTrancheId.value && typeof firstTranche === "string") {
@@ -304,6 +367,15 @@ export const useConsoleStore = defineStore("console", () => {
     ]);
   }
 
+  async function refreshAfterProjectSwitch() {
+    resetProjectScopedState();
+    await loadStatus({ clearError: false });
+
+    if (status.value?.project.active_project) {
+      await loadProposalQueue({ clearError: false });
+    }
+  }
+
   async function runTask(
     flag: Ref<boolean>,
     fallbackMessage: string,
@@ -319,6 +391,18 @@ export const useConsoleStore = defineStore("console", () => {
     } finally {
       flag.value = false;
     }
+  }
+
+  function resetProjectScopedState() {
+    proposalSets.value = [];
+    selectedProposalSetId.value = "";
+    selectedProposalSet.value = null;
+    selectedTrancheId.value = "";
+    generatedPackage.value = null;
+    generatedPackageSet.value = null;
+    generatedReview.value = null;
+    intakeAnalysis.value = null;
+    intakeAnswers.value = {};
   }
 
   const trancheOptions = computed(() =>
@@ -362,6 +446,8 @@ export const useConsoleStore = defineStore("console", () => {
     () => generatedReview.value?.record.status === "attention_required",
   );
 
+  const hasActiveProject = computed(() => Boolean(status.value?.project.active_project));
+
   return {
     status,
     proposalSets,
@@ -379,18 +465,26 @@ export const useConsoleStore = defineStore("console", () => {
     generatedPackage,
     generatedPackageSet,
     generatedReview,
+    newProjectName,
+    newProjectPath,
+    existingProjectPath,
     intakeRequest,
     intakeAnalysis,
     intakeAnswers,
     lastError,
+    isCreatingProject,
+    isOpeningProject,
     trancheOptions,
     blockingQuestions,
     hasUnansweredBlockingQuestions,
     reviewPackageRegenerationIds,
     canGenerateReviewFollowUp,
+    hasActiveProject,
     loadStatus,
     loadProposalQueue,
     loadProposalSet,
+    createManagedProject,
+    openManagedProject,
     generateSelectedPackage,
     generatePackageFor,
     refreshSelectedPackageSet,

@@ -10,7 +10,7 @@ This document describes the current system structure.
 
 ## Current implementation shape
 
-- A Node backend owns file-backed bootstrap, validation, intake analysis, review checkpoint generation, traceability, and package assembly.
+- A Node backend owns managed-project selection, file-backed bootstrap, validation, intake analysis, review checkpoint generation, traceability, and package assembly.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
 - Workflow critique now uses durable `Actor`, `Use Case`, goal, and constraint fields on workflow-scoped tranches and reuses that context in review and package generation.
@@ -24,7 +24,7 @@ This document describes the current system structure.
 - `packaging`: plan and execution package assembly from validated repo truth.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.
 - `traceability`: explicit links between tranches, decisions, packages, reviews, and affected artefacts.
-- `server`: HTTP routes for status, bootstrap, package generation, intake analysis, review checkpoints, and proposal workflows.
+- `server`: HTTP routes for project selection, status, bootstrap, package generation, intake analysis, review checkpoints, and proposal workflows.
 - `ui`: the operator console for status inspection, intake analysis, proposal review, package generation, and checkpoint generation.
 
 ## Durable file contract
