@@ -6,6 +6,10 @@ import type {
 
 export type { LogEvent, LogEventLevel, LogEventListResponse } from "../../../src/modules/logs/contract.js";
 
+export interface ClearLogEventsResult {
+  cleared_count: number;
+}
+
 export interface LogFilters {
   from: string;
   level: string;
@@ -49,6 +53,18 @@ export async function fetchLogEvent(eventId: number): Promise<LogEvent> {
   }
 
   return (await response.json()) as LogEvent;
+}
+
+export async function clearLogEvents(): Promise<ClearLogEventsResult> {
+  const response = await fetch("/api/logs/events", {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(`clear log events request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as ClearLogEventsResult;
 }
 
 export function openLogStream(

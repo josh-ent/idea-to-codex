@@ -60,6 +60,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 
 - Backend logs now flow through one backend-owned logging pipeline.
 - The pipeline writes readable stderr output and also persists Studio-wide `Log Event` records into SQLite.
+- The same observability store also persists project-scoped `LLM Usage Record` entries for in-product model calls.
 - The SQLite database is used only for logging and lives at `logs.sqlite` inside the backend state directory by default.
 - The dedicated log viewer is served at `/logs` and queries the persisted log store through `/api/logs/...`.
 - stderr defaults to the pretty tabular renderer with fixed columns for timestamp, level, scope, request id, and project root.
@@ -74,6 +75,8 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 
 - Intake analysis is now model-backed and uses the OpenAI Responses API with structured outputs.
 - The backend owns the canonical schema, stable question ids, question prompts, blocking flags, and metadata hashes.
+- OpenAI intake calls are audited per canonical project root with token usage records in the observability store.
+- The usage audit shape is provider-based and already reserves `codex` as a separate accounting provider for future in-product Codex lanes.
 - `material_questions[].id` is the stable key used for answers and deterministic proposal generation.
 - `material_questions[].display_id` is presentation-only.
 - Intake analysis is advisory. Proposal drafts remain approval-gated before any target artefact changes.

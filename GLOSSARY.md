@@ -99,6 +99,15 @@
 - Related entities: `Log Event`, `Operator Console`
 - Notes / usage constraints: The `Log Viewer` is separate from the `Operator Console` and is optimized for observability rather than truth mutation.
 
+## LLM Usage Record
+
+- Canonical name: `LLM Usage Record`
+- Allowed aliases: `usage record`, `token audit record`
+- Definition: A persisted observability record that attributes one model call's token usage to a concrete project root, provider, lane, operation, and model.
+- Disallowed or deprecated synonyms: `cost guess`, `raw usage blob`
+- Related entities: `Log Event`, `Log Viewer`, `Operator Console`
+- Notes / usage constraints: `LLM Usage Record` entries are observability data only. They do not become repository truth and must be attributable to one canonical project root.
+
 ## Actor
 
 - Canonical name: `Actor`

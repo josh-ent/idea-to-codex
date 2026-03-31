@@ -7,7 +7,13 @@ import type { IntakeAnalysisClient } from "../../src/modules/intake/service.js";
 export function createStubIntakeClient(
   resolver: (requestText: string) => IntakeModelOutput = defaultStubModelOutput,
   options: {
-    onAnalyzeInput?: (input: { configuredModel: string; prompt: string; timeoutMs: number }) => void;
+    onAnalyzeInput?: (input: {
+      canonicalProjectRoot: string;
+      configuredModel: string;
+      lane: string;
+      prompt: string;
+      timeoutMs: number;
+    }) => void;
   } = {},
 ): IntakeAnalysisClient {
   return {

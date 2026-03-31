@@ -278,6 +278,23 @@ describe("runtime logging", () => {
     expect(listLogEvents({ scope: "server.request" }).events).toHaveLength(0);
   });
 
+  it("clears persisted log events through the log api", async () => {
+    const repo = track(await createFixtureRepo());
+    const stateDir = stateDirFor(repo);
+    initializeLogging({ stateDir });
+    process.env.IDEA_TO_CODEX_LOG_LEVEL = "debug";
+    createLogger("test.clear").info("first event", { root_dir: repo.rootDir });
+    createLogger("test.clear").info("second event", { root_dir: repo.rootDir });
+    const app = createApp(repo.rootDir, { stateDir });
+
+    const clearResponse = await request(app).delete("/api/logs/events");
+
+    expect(clearResponse.status).toBe(200);
+    expect(clearResponse.body.cleared_count).toBe(2);
+    expect(listLogEvents({ scope: "test.clear" }).events).toHaveLength(0);
+    expect(listLogEvents({ scope: "server.request" }).events).toHaveLength(0);
+  });
+
   it("streams appended events through the live log api with filters", async () => {
     const repo = track(await createFixtureRepo());
     const stateDir = stateDirFor(repo);

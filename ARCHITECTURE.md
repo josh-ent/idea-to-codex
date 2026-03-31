@@ -12,6 +12,7 @@ This document describes the current system structure.
 
 - A Node backend owns managed-project selection, file-backed bootstrap, validation, model-backed intake analysis, review checkpoint generation, traceability, and package assembly.
 - The backend also owns logging ingestion, SQLite-backed `Log Event` storage, and log query APIs.
+- The backend also owns project-scoped `LLM Usage Record` auditing for model calls made inside the product.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
 - Workflow critique now uses durable `Actor`, `Use Case`, goal, and constraint fields on workflow-scoped tranches and reuses that context in review and package generation.
@@ -24,6 +25,7 @@ This document describes the current system structure.
 - `governance`: drift signals, review triggers, review checkpoint generation, and placeholder detection for `Actor` / `Use Case` workflow critique.
 - `intake`: canonical request normalization, context loading, model-backed intake analysis, contract validation, and analysis reuse checks.
 - `llm`: the small OpenAI structured-output adapter used by intake analysis.
+- `llm`: the small provider boundary for model calls and project-scoped usage auditing.
 - `packaging`: plan and execution package assembly from validated repo truth.
 - `logs`: query contract and service logic for persisted backend log events.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.
@@ -37,7 +39,7 @@ This document describes the current system structure.
 - Top-level documents define stable project truth such as architecture, glossary, assumptions, risks, and backlog.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
-- SQLite is used only for observability logs and is not a project-truth store.
+- SQLite is used only for observability records such as logs and `LLM Usage Record` auditing, and is not a project-truth store.
 
 ## Canonical loop
 

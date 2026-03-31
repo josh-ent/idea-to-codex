@@ -65,6 +65,7 @@ function jsonResponse(body: unknown): Response {
 beforeEach(() => {
   fetchMock.mockReset();
   MockEventSource.reset();
+  window.location.hash = "";
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("EventSource", MockEventSource as unknown as typeof EventSource);
 });
@@ -73,7 +74,7 @@ describe("log viewer app", () => {
   it("renders the results table, headers, and colored level badges", async () => {
     const event = buildEvent();
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event },
       list: {
         events: [event],
         latest_id: event.id,
@@ -94,7 +95,7 @@ describe("log viewer app", () => {
   it("clicking scope, request, and project pills applies those filters", async () => {
     const event = buildEvent();
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event },
       list: {
         events: [event],
         latest_id: event.id,
@@ -127,7 +128,7 @@ describe("log viewer app", () => {
   it("disables live tail while free-text search is active and resumes when cleared", async () => {
     const event = buildEvent();
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event },
       list: {
         events: [event],
         latest_id: event.id,
@@ -157,7 +158,7 @@ describe("log viewer app", () => {
   it("disables live tail while a time range is active", async () => {
     const event = buildEvent();
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event },
       list: {
         events: [event],
         latest_id: event.id,
@@ -177,7 +178,7 @@ describe("log viewer app", () => {
   it("renders the detail panel with structured payload and stack trace", async () => {
     const event = buildEvent();
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event },
       list: {
         events: [event],
         latest_id: event.id,
@@ -192,6 +193,92 @@ describe("log viewer app", () => {
     expect(wrapper.get('[data-testid="stack-trace"]').text()).toContain("Error: boom");
   });
 
+  it("opens LLM request details as a separate page and returns with the back button", async () => {
+    const requestEvent = buildEvent({
+      id: 90,
+      message: "responses.parse request",
+      payload_json: JSON.stringify({
+        llm_direction: "request",
+        llm_operation: "responses.parse",
+        request_body: {
+          input: "operator prompt",
+          model: "gpt-5.2-chat-latest",
+        },
+      }),
+      scope: "llm.openai",
+    });
+    const responseEvent = buildEvent({
+      id: 91,
+      message: "responses.parse response",
+      payload_json: JSON.stringify({
+        llm_direction: "response",
+        request_log_event_id: 90,
+        response_body: {
+          id: "resp_123",
+        },
+      }),
+      scope: "llm.openai",
+    });
+    mockLogFetches({
+      details: {
+        90: requestEvent,
+        91: responseEvent,
+      },
+      list: {
+        events: [responseEvent],
+        latest_id: responseEvent.id,
+        next_before_id: null,
+      },
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get('[data-testid="view-request"]').trigger("click");
+    await flushPromises();
+
+    expect(window.location.hash).toBe("#llm-request/90/from/91");
+    expect(wrapper.get('[data-testid="request-payload-json"]').text()).toContain("operator prompt");
+
+    await wrapper.get('[data-testid="back-button"]').trigger("click");
+    await flushPromises();
+
+    expect(window.location.hash).toBe("");
+    expect(wrapper.get('[data-testid="payload-json"]').text()).toContain('"request_log_event_id": 90');
+  });
+
+  it("guards log clearing behind a modal and clears the list on confirmation", async () => {
+    const event = buildEvent();
+    mockLogFetches({
+      clearResult: { cleared_count: 1 },
+      details: { [event.id]: event },
+      list: {
+        events: [event],
+        latest_id: event.id,
+        next_before_id: null,
+      },
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get('[data-testid="clear-logs"]').trigger("click");
+    expect(wrapper.get('[data-testid="clear-logs-modal"]').text()).toContain(
+      "This deletes all stored log events from the SQLite log store.",
+    );
+
+    await wrapper.get('[data-testid="cancel-clear-logs"]').trigger("click");
+    expect(wrapper.find('[data-testid="clear-logs-modal"]').exists()).toBe(false);
+
+    await wrapper.get('[data-testid="clear-logs"]').trigger("click");
+    await wrapper.get('[data-testid="confirm-clear-logs"]').trigger("click");
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/logs/events", { method: "DELETE" });
+    expect(wrapper.text()).toContain("Cleared 1 log event.");
+    expect(wrapper.text()).toContain("0 loaded");
+  });
+
   it("prepends live events from the stream to the table", async () => {
     const event = buildEvent();
     const streamed = buildEvent({
@@ -200,7 +287,7 @@ describe("log viewer app", () => {
       message: "streamed event",
     });
     mockLogFetches({
-      detail: event,
+      details: { [event.id]: event, [streamed.id]: streamed },
       list: {
         events: [event],
         latest_id: event.id,
@@ -222,18 +309,39 @@ describe("log viewer app", () => {
 });
 
 function mockLogFetches(input: {
-  detail: LogEvent;
+  clearResult?: { cleared_count: number };
+  details: Record<number, LogEvent>;
   list: LogEventListResponse;
 }): void {
-  fetchMock.mockImplementation(async (request) => {
+  let currentList = input.list;
+
+  fetchMock.mockImplementation(async (request, init) => {
     const url = typeof request === "string" ? request : String(request);
 
-    if (url.startsWith("/api/logs/events?")) {
-      return jsonResponse(input.list);
+    if (url === "/api/logs/events" && init?.method === "DELETE") {
+      currentList = {
+        events: [],
+        latest_id: null,
+        next_before_id: null,
+      };
+      return jsonResponse(input.clearResult ?? { cleared_count: 0 });
     }
 
-    if (url === `/api/logs/events/${input.detail.id}`) {
-      return jsonResponse(input.detail);
+    if (url.startsWith("/api/logs/events?")) {
+      return jsonResponse(currentList);
+    }
+
+    const detailMatch = url.match(/^\/api\/logs\/events\/(\d+)$/);
+
+    if (detailMatch) {
+      const eventId = Number(detailMatch[1]);
+      const detail = input.details[eventId];
+
+      if (!detail) {
+        throw new Error(`Unexpected detail fetch id: ${eventId}`);
+      }
+
+      return jsonResponse(detail);
     }
 
     throw new Error(`Unexpected fetch url: ${url}`);

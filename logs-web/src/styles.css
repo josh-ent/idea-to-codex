@@ -35,6 +35,10 @@ select {
   margin-bottom: 12px;
 }
 
+.toolbar--actions {
+  margin-bottom: 8px;
+}
+
 .toolbar__title {
   display: flex;
   align-items: baseline;
@@ -104,6 +108,12 @@ select {
 
 .ghost-button {
   cursor: pointer;
+}
+
+.ghost-button--danger {
+  border-color: rgba(229, 62, 62, 0.28);
+  background: rgba(67, 16, 16, 0.68);
+  color: #ffd0d0;
 }
 
 .status {
@@ -214,6 +224,10 @@ select {
   padding: 12px 14px;
 }
 
+.detail-actions {
+  padding: 0 14px 14px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -309,6 +323,47 @@ pre {
 .empty-detail {
   padding: 14px;
   color: #b8c2d3;
+}
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 5, 10, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.modal-card {
+  width: min(420px, 100%);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 14, 24, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.modal-card__header {
+  padding: 14px 16px 8px;
+}
+
+.modal-card__header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.modal-card__body {
+  margin: 0;
+  padding: 0 16px 16px;
+  color: #c6d1e2;
+  line-height: 1.45;
+}
+
+.modal-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 16px 16px;
 }
 
 @media (max-width: 1180px) {

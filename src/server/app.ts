@@ -28,6 +28,7 @@ import {
   parseLiveLogEventQuery,
   queryLogEvents,
   readLogEvent,
+  removeLogEvents,
 } from "../modules/logs/service.js";
 import {
   analyzeRequest,
@@ -288,6 +289,16 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
   app.get("/api/logs/events", (request, response, next) => {
     try {
       response.status(200).json(queryLogEvents(request.query as Record<string, unknown>));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/logs/events", (_request, response, next) => {
+    try {
+      response.status(200).json({
+        cleared_count: removeLogEvents(),
+      });
     } catch (error) {
       next(error);
     }

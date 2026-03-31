@@ -58,7 +58,9 @@ interface IntakeQuestionDefinition {
 
 export interface IntakeAnalysisClient {
   analyze(input: {
+    canonicalProjectRoot: string;
     configuredModel: string;
+    lane: string;
     prompt: string;
     timeoutMs: number;
   }): Promise<{
@@ -314,7 +316,9 @@ export async function analyzeRequest(
 
       try {
         const result = await client.analyze({
+          canonicalProjectRoot: loadedContext.canonicalProjectRoot,
           configuredModel,
+          lane: intakeLane,
           prompt,
           timeoutMs,
         });
@@ -388,8 +392,10 @@ function createDefaultClient(): IntakeAnalysisClient {
     async analyze(input) {
       const response = await parseStructuredTextWithOpenAI<z.infer<typeof intakeModelOutputSchema>>({
         apiKey,
+        canonicalProjectRoot: input.canonicalProjectRoot,
         configuredModel: input.configuredModel,
         instructions: systemInstructions,
+        lane: input.lane,
         prompt: input.prompt,
         responseFormat: zodTextFormat(intakeModelOutputSchema, "intake_analysis"),
         timeoutMs: input.timeoutMs,

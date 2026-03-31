@@ -1,4 +1,5 @@
 import {
+  clearLogEvents,
   getLogEvent,
   listLogEvents,
 } from "../../runtime/logging.js";
@@ -24,6 +25,10 @@ export function queryLogEvents(input: Record<string, unknown>): LogEventListResp
 
 export function readLogEvent(eventId: number): LogEvent | null {
   return getLogEvent(eventId);
+}
+
+export function removeLogEvents(): number {
+  return clearLogEvents();
 }
 
 export function parseLogEventQuery(input: Record<string, unknown>): LogEventQuery {

@@ -12,6 +12,11 @@ import {
   type LogEventListResponse,
   type LogEventQuery,
 } from "../modules/logs/contract.js";
+import {
+  type LlmUsageQuery,
+  type LlmUsageRecord,
+  type LlmUsageRecordInput,
+} from "../modules/llm/contract.js";
 import { loggingDatabasePath } from "./state-paths.js";
 
 export type LogLevelName = LogEventLevel | "silent";
@@ -62,6 +67,7 @@ const logScopeWidth = 28;
 const logRequestWidth = 10;
 const logProjectWidth = 28;
 const logSuffixFieldLimit = 6;
+const terminalValuePreviewLimit = 160;
 let loggingBackend: LoggingBackend | null = null;
 
 export function createLogger(scope: string, boundFields: LogFields = {}): Logger {
@@ -178,6 +184,18 @@ export function getLogEvent(eventId: number): LogEvent | null {
   return getLoggingBackend().get(eventId);
 }
 
+export function clearLogEvents(): number {
+  return getLoggingBackend().clear();
+}
+
+export function recordLlmUsage(input: LlmUsageRecordInput): LlmUsageRecord {
+  return getLoggingBackend().recordLlmUsage(input);
+}
+
+export function listLlmUsageRecords(query: LlmUsageQuery = {}): LlmUsageRecord[] {
+  return getLoggingBackend().listLlmUsage(query);
+}
+
 export function subscribeToLogEvents(listener: (event: LogEvent) => void): () => void {
   return getLoggingBackend().subscribe(listener);
 }
@@ -195,29 +213,29 @@ export class Logger {
     });
   }
 
-  trace(message: string, fields?: LogFields): void {
-    this.log("trace", message, fields);
+  trace(message: string, fields?: LogFields): LogEvent | null {
+    return this.log("trace", message, fields);
   }
 
-  debug(message: string, fields?: LogFields): void {
-    this.log("debug", message, fields);
+  debug(message: string, fields?: LogFields): LogEvent | null {
+    return this.log("debug", message, fields);
   }
 
-  info(message: string, fields?: LogFields): void {
-    this.log("info", message, fields);
+  info(message: string, fields?: LogFields): LogEvent | null {
+    return this.log("info", message, fields);
   }
 
-  warn(message: string, fields?: LogFields): void {
-    this.log("warn", message, fields);
+  warn(message: string, fields?: LogFields): LogEvent | null {
+    return this.log("warn", message, fields);
   }
 
-  error(message: string, fields?: LogFields): void {
-    this.log("error", message, fields);
+  error(message: string, fields?: LogFields): LogEvent | null {
+    return this.log("error", message, fields);
   }
 
-  log(level: LogLevelName, message: string, fields?: LogFields): void {
+  log(level: LogLevelName, message: string, fields?: LogFields): LogEvent | null {
     if (level === "silent" || !shouldLog(level)) {
-      return;
+      return null;
     }
 
     const payload = normalizeFields({
@@ -230,8 +248,10 @@ export class Logger {
     try {
       const storedEvent = getLoggingBackend().append(event);
       writeLogLine(storedEvent, event.payload);
+      return storedEvent;
     } catch (error) {
       writeFallbackLogLine(event, error);
+      return null;
     }
   }
 }
@@ -377,6 +397,99 @@ class LoggingBackend {
       .get(eventId) as LogEvent | undefined) ?? null;
   }
 
+  clear(): number {
+    return this.db.transaction(() => {
+      const result = this.db.prepare("DELETE FROM log_events").run();
+      this.db.prepare("DELETE FROM log_events_fts").run();
+      this.db.prepare("DELETE FROM sqlite_sequence WHERE name = 'log_events'").run();
+      return result.changes;
+    })();
+  }
+
+  recordLlmUsage(input: LlmUsageRecordInput): LlmUsageRecord {
+    const occurredAt = new Date().toISOString();
+    const metadataJson = JSON.stringify(normalizeFields(input.metadata ?? {}));
+    const inserted = this.db
+      .prepare(
+        [
+          "INSERT INTO llm_usage_records (",
+          "  occurred_at, provider, lane, operation, configured_model, resolved_model,",
+          "  project_root, input_tokens, output_tokens, total_tokens,",
+          "  request_log_event_id, response_log_event_id, metadata_json",
+          ") VALUES (",
+          "  @occurred_at, @provider, @lane, @operation, @configured_model, @resolved_model,",
+          "  @project_root, @input_tokens, @output_tokens, @total_tokens,",
+          "  @request_log_event_id, @response_log_event_id, @metadata_json",
+          ")",
+        ].join("\n"),
+      )
+      .run({
+        configured_model: input.configured_model,
+        input_tokens: input.input_tokens,
+        lane: input.lane,
+        metadata_json: metadataJson,
+        occurred_at: occurredAt,
+        operation: input.operation,
+        output_tokens: input.output_tokens,
+        project_root: input.project_root,
+        provider: input.provider,
+        request_log_event_id: input.request_log_event_id ?? null,
+        resolved_model: input.resolved_model,
+        response_log_event_id: input.response_log_event_id ?? null,
+        total_tokens: input.total_tokens,
+      });
+
+    return {
+      configured_model: input.configured_model,
+      id: Number(inserted.lastInsertRowid),
+      input_tokens: input.input_tokens,
+      lane: input.lane,
+      metadata_json: metadataJson,
+      occurred_at: occurredAt,
+      operation: input.operation,
+      output_tokens: input.output_tokens,
+      project_root: input.project_root,
+      provider: input.provider,
+      request_log_event_id: input.request_log_event_id ?? null,
+      resolved_model: input.resolved_model,
+      response_log_event_id: input.response_log_event_id ?? null,
+      total_tokens: input.total_tokens,
+    };
+  }
+
+  listLlmUsage(query: LlmUsageQuery): LlmUsageRecord[] {
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = {};
+
+    if (query.provider) {
+      clauses.push("provider = @provider");
+      params.provider = query.provider;
+    }
+
+    if (query.project_root?.trim()) {
+      clauses.push("project_root = @project_root");
+      params.project_root = query.project_root.trim();
+    }
+
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    return this.db
+      .prepare(
+        [
+          "SELECT id, occurred_at, provider, lane, operation, configured_model, resolved_model,",
+          "  project_root, input_tokens, output_tokens, total_tokens,",
+          "  request_log_event_id, response_log_event_id, metadata_json",
+          "FROM llm_usage_records",
+          whereClause,
+          "ORDER BY id DESC",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+      .all(params)
+      .map((row) => row as LlmUsageRecord);
+  }
+
   subscribe(listener: (event: LogEvent) => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -405,6 +518,22 @@ class LoggingBackend {
         "  payload_json TEXT NOT NULL,",
         "  payload_text TEXT NOT NULL",
         ");",
+        "CREATE TABLE IF NOT EXISTS llm_usage_records (",
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,",
+        "  occurred_at TEXT NOT NULL,",
+        "  provider TEXT NOT NULL,",
+        "  lane TEXT NOT NULL,",
+        "  operation TEXT NOT NULL,",
+        "  configured_model TEXT NOT NULL,",
+        "  resolved_model TEXT,",
+        "  project_root TEXT NOT NULL,",
+        "  input_tokens INTEGER NOT NULL,",
+        "  output_tokens INTEGER NOT NULL,",
+        "  total_tokens INTEGER NOT NULL,",
+        "  request_log_event_id INTEGER,",
+        "  response_log_event_id INTEGER,",
+        "  metadata_json TEXT NOT NULL",
+        ");",
         "CREATE VIRTUAL TABLE IF NOT EXISTS log_events_fts USING fts5(",
         "  scope,",
         "  message,",
@@ -418,6 +547,9 @@ class LoggingBackend {
         "CREATE INDEX IF NOT EXISTS log_events_scope_idx ON log_events (scope);",
         "CREATE INDEX IF NOT EXISTS log_events_request_id_idx ON log_events (request_id);",
         "CREATE INDEX IF NOT EXISTS log_events_project_root_idx ON log_events (project_root);",
+        "CREATE INDEX IF NOT EXISTS llm_usage_records_provider_idx ON llm_usage_records (provider);",
+        "CREATE INDEX IF NOT EXISTS llm_usage_records_project_root_idx ON llm_usage_records (project_root);",
+        "CREATE INDEX IF NOT EXISTS llm_usage_records_occurred_at_idx ON llm_usage_records (occurred_at);",
       ].join("\n"),
     );
   }
@@ -507,10 +639,6 @@ function normalizeFieldValue(value: unknown): unknown {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, normalizeFieldValue(entry)]),
     );
-  }
-
-  if (typeof value === "string" && value.length > 400) {
-    return `${value.slice(0, 397)}...`;
   }
 
   return value;
@@ -696,6 +824,8 @@ function formatPayloadSuffix(payload: LogFields): string {
         "request_id",
         "request_method",
         "request_path",
+        "request_body",
+        "response_body",
         "canonical_project_root",
         "active_project_path",
         "project_path",
@@ -711,15 +841,22 @@ function formatPayloadSuffix(payload: LogFields): string {
 }
 
 function compactFieldValue(value: unknown): string {
-  if (typeof value === "string") {
-    return JSON.stringify(value);
+  const serialized =
+    typeof value === "string"
+      ? JSON.stringify(value)
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : JSON.stringify(value);
+
+  return truncatePreview(serialized, terminalValuePreviewLimit);
+}
+
+function truncatePreview(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
   }
 
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  return JSON.stringify(value);
+  return `${value.slice(0, limit - 3)}...`;
 }
 
 function readStackTrace(payload: LogFields): string {
