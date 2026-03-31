@@ -123,7 +123,10 @@ onMounted(() => {
           :closable="false"
           class="app-message"
         >
-          {{ store.lastError }}
+          <p>{{ store.lastError }}</p>
+          <small v-if="store.lastErrorGuidance">
+            {{ store.lastErrorGuidance }}
+          </small>
         </Message>
 
         <section class="app-content">

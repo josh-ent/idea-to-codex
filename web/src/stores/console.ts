@@ -15,7 +15,7 @@ import {
   type ProposalSetSummary,
   type ReviewPayload,
   type StatusPayload,
-} from "../api/console";
+} from "../api/console.js";
 
 const reviewPackageRefreshSignals = new Set([
   "package alignment drift detected",
@@ -572,6 +572,21 @@ export const useConsoleStore = defineStore("console", () => {
   );
 
   const hasActiveProject = computed(() => Boolean(status.value?.project.active_project));
+  const lastErrorGuidance = computed(() => {
+    if (!lastError.value) {
+      return "";
+    }
+
+    if (lastErrorCode.value.startsWith("analysis_")) {
+      return "Re-run intake analysis before generating proposals.";
+    }
+
+    if (lastErrorRetryable.value) {
+      return "You can retry this action.";
+    }
+
+    return "";
+  });
 
   watch(intakeRequest, (nextValue) => {
     if (!intakeAnalysis.value) {
@@ -609,6 +624,7 @@ export const useConsoleStore = defineStore("console", () => {
     intakeAnalysisStale,
     lastError,
     lastErrorCode,
+    lastErrorGuidance,
     lastErrorRetryable,
     isCreatingProject,
     isOpeningProject,
@@ -654,13 +670,5 @@ function normalizeIntakeRequest(value: string): string {
 }
 
 function readApiErrorMessage(error: ApiError, fallbackMessage: string): string {
-  if (error.errorCode?.startsWith("analysis_")) {
-    return `${error.message} Re-run intake analysis before generating proposals.`;
-  }
-
-  if (error.retryable) {
-    return `${error.message} You can retry this action.`;
-  }
-
   return error.message || fallbackMessage;
 }

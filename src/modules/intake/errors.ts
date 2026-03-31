@@ -1,3 +1,5 @@
+import type { StructuredErrorPayload } from "./contract.js";
+
 export const intakeErrorStatuses = {
   active_project_missing: 409,
   analysis_context_mismatch: 409,
@@ -6,6 +8,7 @@ export const intakeErrorStatuses = {
   analysis_prompt_version_mismatch: 409,
   analysis_request_mismatch: 409,
   analysis_schema_version_mismatch: 409,
+  blocking_questions_unanswered: 409,
   context_load_failure: 500,
   contract_violation: 502,
   invalid_structured_output: 502,
@@ -13,6 +16,7 @@ export const intakeErrorStatuses = {
   model_refusal: 422,
   provider_timeout: 504,
   provider_unavailable: 502,
+  unknown_answer_ids: 409,
 } as const;
 
 export type IntakeErrorCode = keyof typeof intakeErrorStatuses;
@@ -47,4 +51,13 @@ export class IntakeError extends Error {
 
 export function isIntakeError(error: unknown): error is IntakeError {
   return error instanceof IntakeError;
+}
+
+export function toStructuredErrorPayload(error: IntakeError): StructuredErrorPayload {
+  return {
+    message: error.message,
+    error_code: error.code,
+    retryable: error.retryable,
+    details: error.details,
+  };
 }

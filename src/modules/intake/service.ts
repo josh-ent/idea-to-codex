@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import { createHash } from "node:crypto";
@@ -11,12 +12,22 @@ import { createLogger, logOperation } from "../../runtime/logging.js";
 import { workflowQuestionTypes } from "../governance/workflow.js";
 import { parseStructuredTextWithOpenAI } from "../llm/openai.js";
 import { IntakeError } from "./errors.js";
+import {
+  intakePromptVersion,
+  intakeQuestionTypes,
+  intakeSchemaVersion,
+  type IntakeAnalysis,
+  type IntakeAnalysisMetadata,
+  type IntakeContextSourceIssue,
+  type IntakeContextSourceUsed,
+  type IntakeModelOutput,
+  type IntakeQuestion,
+  type IntakeQuestionType,
+} from "./contract.js";
 
 const logger = createLogger("intake");
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
-export const intakeSchemaVersion = 2;
-export const intakePromptVersion = "2026-03-31.1";
 const intakeLane = "broad_reasoning" as const;
 const intakeProvider = "openai" as const;
 const defaultConfiguredModel =
@@ -37,84 +48,12 @@ const optionalContextSourcePaths = [
   "BACKLOG.md",
 ] as const;
 
-export const intakeQuestionTypes = [
-  ...workflowQuestionTypes,
-  "terminology_integrity",
-  "data_definition_integrity",
-  "architecture_direction",
-  "governance_posture",
-  "handoff_quality",
-  "bounded_change",
-] as const;
-
-export type IntakeQuestionType = (typeof intakeQuestionTypes)[number];
-
-export interface IntakeQuestion {
-  id: IntakeQuestionType;
-  display_id: string;
-  type: IntakeQuestionType;
-  blocking: boolean;
-  default_recommendation: string;
-  consequence_of_non_decision: string;
-  affected_artifacts: string[];
-  status: "open";
-  prompt: string;
-}
-
-export interface IntakeContextSourceUsed {
-  path: string;
-  content_hash: string;
-  truncated: boolean;
-}
-
-export interface IntakeContextSourceIssue {
-  path: string;
-  reason: string;
-}
-
-export interface IntakeAnalysisMetadata {
-  provider: typeof intakeProvider;
-  lane: typeof intakeLane;
-  configured_model: string;
-  resolved_model: string | null;
-  schema_version: typeof intakeSchemaVersion;
-  prompt_version: typeof intakePromptVersion;
-  canonical_project_root: string;
-  request_hash: string;
-  context_hash: string;
-  analysis_hash: string;
-  duration_ms: number;
-  context_sources_used: IntakeContextSourceUsed[];
-  context_sources_missing: IntakeContextSourceIssue[];
-  context_sources_invalid: IntakeContextSourceIssue[];
-  context_truncated: boolean;
-}
-
-export interface IntakeAnalysis {
-  summary: string;
-  recommended_tranche_title: string;
-  affected_artifacts: string[];
-  affected_modules: string[];
-  material_questions: IntakeQuestion[];
-  draft_assumptions: string[];
-  analysis_metadata: IntakeAnalysisMetadata;
-}
-
 interface IntakeQuestionDefinition {
   blocking: boolean;
   defaultRecommendation: string;
   consequenceOfNonDecision: string;
   affectedArtifacts: string[];
   prompt: string;
-}
-
-export interface IntakeModelOutput {
-  summary: string;
-  recommended_tranche_title: string;
-  affected_artifacts: string[];
-  affected_modules: string[];
-  question_types: IntakeQuestionType[];
-  draft_assumptions: string[];
 }
 
 export interface IntakeAnalysisClient {
@@ -159,6 +98,47 @@ const intakeQuestionSchema = z
     prompt: z.string(),
   })
   .strict();
+const intakeAnalysisMetadataSchema = z
+  .object({
+    provider: z.literal(intakeProvider),
+    lane: z.literal(intakeLane),
+    configured_model: z.string(),
+    resolved_model: z.string().nullable(),
+    schema_version: z.literal(intakeSchemaVersion),
+    prompt_version: z.literal(intakePromptVersion),
+    canonical_project_root: z.string(),
+    request_hash: z.string(),
+    context_hash: z.string(),
+    analysis_hash: z.string(),
+    duration_ms: z.number().int().nonnegative(),
+    context_sources_used: z.array(
+      z
+        .object({
+          path: z.string(),
+          content_hash: z.string(),
+          truncated: z.boolean(),
+        })
+        .strict(),
+    ),
+    context_sources_missing: z.array(
+      z
+        .object({
+          path: z.string(),
+          reason: z.string(),
+        })
+        .strict(),
+    ),
+    context_sources_invalid: z.array(
+      z
+        .object({
+          path: z.string(),
+          reason: z.string(),
+        })
+        .strict(),
+    ),
+    context_truncated: z.boolean(),
+  })
+  .strict();
 const intakeAnalysisSchema = z
   .object({
     summary: z.string(),
@@ -167,47 +147,22 @@ const intakeAnalysisSchema = z
     affected_modules: z.array(z.string()),
     material_questions: z.array(intakeQuestionSchema),
     draft_assumptions: z.array(z.string()),
-    analysis_metadata: z
-      .object({
-        provider: z.literal(intakeProvider),
-        lane: z.literal(intakeLane),
-        configured_model: z.string(),
-        resolved_model: z.string().nullable(),
-        schema_version: z.literal(intakeSchemaVersion),
-        prompt_version: z.literal(intakePromptVersion),
-        canonical_project_root: z.string(),
-        request_hash: z.string(),
-        context_hash: z.string(),
-        analysis_hash: z.string(),
-        duration_ms: z.number().int().nonnegative(),
-        context_sources_used: z.array(
-          z
-            .object({
-              path: z.string(),
-              content_hash: z.string(),
-              truncated: z.boolean(),
-            })
-            .strict(),
-        ),
-        context_sources_missing: z.array(
-          z
-            .object({
-              path: z.string(),
-              reason: z.string(),
-            })
-            .strict(),
-        ),
-        context_sources_invalid: z.array(
-          z
-            .object({
-              path: z.string(),
-              reason: z.string(),
-            })
-            .strict(),
-        ),
-        context_truncated: z.boolean(),
-      })
-      .strict(),
+    analysis_metadata: intakeAnalysisMetadataSchema,
+  })
+  .strict();
+const looseSuppliedQuestionSchema = z.object({ type: questionTypeSchema }).passthrough();
+const looseSuppliedAnalysisSchema = z
+  .object({
+    summary: z.string(),
+    recommended_tranche_title: z.string(),
+    affected_artifacts: z.array(z.string()),
+    affected_modules: z.array(z.string()),
+    material_questions: z.array(looseSuppliedQuestionSchema),
+    draft_assumptions: z.array(z.string()),
+    analysis_metadata: intakeAnalysisMetadataSchema.extend({
+      prompt_version: z.string(),
+      schema_version: z.number().int(),
+    }),
   })
   .strict();
 
@@ -326,6 +281,9 @@ interface LoadedContext {
   promptContext: string;
 }
 
+type IntakeAnalysisBody = Omit<IntakeAnalysis, "analysis_metadata">;
+type LooseSuppliedAnalysis = z.infer<typeof looseSuppliedAnalysisSchema>;
+
 const systemInstructions = [
   "You analyze repository-backed intake requests for a product planning system.",
   "Return only bounded analysis fields. Do not return full question objects.",
@@ -372,7 +330,17 @@ export async function analyzeRequest(
           resolvedModel: result.resolvedModel,
         });
       } catch (error) {
-        throw mapProviderError(error);
+        const mappedError = mapProviderError(error);
+        logger.warn("intake analysis failed", {
+          configured_model: configuredModel,
+          context_truncated: loadedContext.contextTruncated,
+          duration_ms: Date.now() - startedAt,
+          error_code: mappedError instanceof IntakeError ? mappedError.code : "unknown_failure",
+          lane: intakeLane,
+          request_hash: requestHash,
+          resolved_model: null,
+        });
+        throw mappedError;
       }
     },
     {
@@ -524,17 +492,17 @@ async function loadContext(rootDir: string): Promise<LoadedContext> {
     })),
     contextTruncated,
     promptContext: usedSources
-      .map((source) => `## ${source.path}\n${source.content || "(empty)"}`)
+      .map((source) => `## ${source.path}\n${source.content}`)
       .join("\n\n"),
   };
 }
 
 async function resolveCanonicalProjectRoot(rootDir: string): Promise<string> {
   const resolvedRoot = path.resolve(rootDir);
+  let canonicalProjectRoot: string;
 
   try {
-    await fs.access(resolvedRoot);
-    return await fs.realpath(resolvedRoot);
+    canonicalProjectRoot = await fs.realpath(resolvedRoot);
   } catch {
     throw new IntakeError(
       "context_load_failure",
@@ -548,6 +516,59 @@ async function resolveCanonicalProjectRoot(rootDir: string): Promise<string> {
       },
     );
   }
+
+  let stats;
+
+  try {
+    stats = await fs.stat(canonicalProjectRoot);
+  } catch {
+    throw new IntakeError(
+      "context_load_failure",
+      `The active project root is not readable: ${resolvedRoot}`,
+      {
+        details: {
+          canonical_project_root: canonicalProjectRoot,
+          requested_root: rootDir,
+          resolved_root: resolvedRoot,
+        },
+        retryable: false,
+      },
+    );
+  }
+
+  if (!stats.isDirectory()) {
+    throw new IntakeError(
+      "context_load_failure",
+      `The active project root is not a directory: ${canonicalProjectRoot}`,
+      {
+        details: {
+          canonical_project_root: canonicalProjectRoot,
+          requested_root: rootDir,
+          resolved_root: resolvedRoot,
+        },
+        retryable: false,
+      },
+    );
+  }
+
+  try {
+    await fs.access(canonicalProjectRoot, fsConstants.R_OK);
+  } catch {
+    throw new IntakeError(
+      "context_load_failure",
+      `The active project root is not readable: ${resolvedRoot}`,
+      {
+        details: {
+          canonical_project_root: canonicalProjectRoot,
+          requested_root: rootDir,
+          resolved_root: resolvedRoot,
+        },
+        retryable: false,
+      },
+    );
+  }
+
+  return canonicalProjectRoot;
 }
 
 function buildPrompt(requestText: string, context: LoadedContext): string {
@@ -560,10 +581,10 @@ function buildPrompt(requestText: string, context: LoadedContext): string {
     ...intakeQuestionTypes.map((questionType) => `- ${questionType}`),
     "",
     "Request:",
-    requestText || "(empty request)",
+    requestText,
     "",
     "Repository context:",
-    context.promptContext || "(no optional context available)",
+    context.promptContext,
   ].join("\n");
 }
 
@@ -628,6 +649,8 @@ function finalizeAnalysis(input: {
     configured_model: analysis.analysis_metadata.configured_model,
     context_hash: analysis.analysis_metadata.context_hash,
     context_truncated: analysis.analysis_metadata.context_truncated,
+    duration_ms: analysis.analysis_metadata.duration_ms,
+    lane: analysis.analysis_metadata.lane,
     question_types: analysis.material_questions.map((question) => question.type),
     request_hash: analysis.analysis_metadata.request_hash,
     resolved_model: analysis.analysis_metadata.resolved_model,
@@ -648,60 +671,84 @@ async function validateSuppliedAnalysis(
       const normalizedRequest = normalizeRequestText(requestText);
       const requestHash = hashText(normalizedRequest);
       const context = await loadContext(rootDir);
-      const analysis = validateCanonicalAnalysis(suppliedAnalysis);
+      const parsed = looseSuppliedAnalysisSchema.safeParse(suppliedAnalysis);
 
-      if (analysis.analysis_metadata.request_hash !== requestHash) {
+      if (!parsed.success) {
+        throw new IntakeError("contract_violation", "The intake analysis contract is invalid.", {
+          details: {
+            issues: parsed.error.issues.map((issue) => issue.message),
+          },
+        });
+      }
+
+      const suppliedEnvelope = parsed.data;
+
+      if (suppliedEnvelope.analysis_metadata.request_hash !== requestHash) {
         throw new IntakeError(
           "analysis_request_mismatch",
           "The supplied intake analysis does not match the current request.",
         );
       }
 
-      if (analysis.analysis_metadata.canonical_project_root !== context.canonicalProjectRoot) {
+      if (
+        suppliedEnvelope.analysis_metadata.canonical_project_root !== context.canonicalProjectRoot
+      ) {
         throw new IntakeError(
           "analysis_project_mismatch",
           "The supplied intake analysis was produced for a different project root.",
         );
       }
 
-      if (analysis.analysis_metadata.context_hash !== context.contextHash) {
+      if (suppliedEnvelope.analysis_metadata.context_hash !== context.contextHash) {
         throw new IntakeError(
           "analysis_context_mismatch",
           "The supplied intake analysis does not match the current project context.",
         );
       }
 
-      if (analysis.analysis_metadata.schema_version !== intakeSchemaVersion) {
+      if (suppliedEnvelope.analysis_metadata.schema_version !== intakeSchemaVersion) {
         throw new IntakeError(
           "analysis_schema_version_mismatch",
           "The supplied intake analysis uses an unsupported schema version.",
         );
       }
 
-      if (analysis.analysis_metadata.prompt_version !== intakePromptVersion) {
+      if (suppliedEnvelope.analysis_metadata.prompt_version !== intakePromptVersion) {
         throw new IntakeError(
           "analysis_prompt_version_mismatch",
           "The supplied intake analysis uses a different prompt version.",
         );
       }
 
+      const normalizedBody = buildCanonicalAnalysisBody(
+        buildCanonicalModelOutputFromSuppliedAnalysis(suppliedEnvelope),
+      );
+      const normalizedAnalysis = validateCanonicalAnalysis({
+        ...normalizedBody,
+        analysis_metadata: {
+          ...suppliedEnvelope.analysis_metadata,
+          prompt_version: intakePromptVersion,
+          schema_version: intakeSchemaVersion,
+        },
+      });
+
       const expectedHash = computeAnalysisHash({
         canonicalProjectRoot: context.canonicalProjectRoot,
         contextHash: context.contextHash,
-        normalizedBody: extractCanonicalAnalysisBody(analysis),
+        normalizedBody: extractCanonicalAnalysisBody(normalizedAnalysis),
         promptVersion: intakePromptVersion,
         requestHash,
         schemaVersion: intakeSchemaVersion,
       });
 
-      if (analysis.analysis_metadata.analysis_hash !== expectedHash) {
+      if (suppliedEnvelope.analysis_metadata.analysis_hash !== expectedHash) {
         throw new IntakeError(
           "analysis_hash_mismatch",
           "The supplied intake analysis failed integrity validation.",
         );
       }
 
-      return analysis;
+      return normalizedAnalysis;
     },
     {
       fields: {
@@ -713,7 +760,20 @@ async function validateSuppliedAnalysis(
   );
 }
 
-function buildCanonicalAnalysisBody(rawOutput: IntakeModelOutput): Omit<IntakeAnalysis, "analysis_metadata"> {
+function buildCanonicalModelOutputFromSuppliedAnalysis(
+  suppliedAnalysis: LooseSuppliedAnalysis,
+): IntakeModelOutput {
+  return {
+    summary: suppliedAnalysis.summary,
+    recommended_tranche_title: suppliedAnalysis.recommended_tranche_title,
+    affected_artifacts: suppliedAnalysis.affected_artifacts,
+    affected_modules: suppliedAnalysis.affected_modules,
+    question_types: suppliedAnalysis.material_questions.map((question) => question.type),
+    draft_assumptions: suppliedAnalysis.draft_assumptions,
+  };
+}
+
+function buildCanonicalAnalysisBody(rawOutput: IntakeModelOutput): IntakeAnalysisBody {
   const questionTypes = normalizeQuestionTypes(rawOutput.question_types);
   const materialQuestions = questionTypes.map((type, index) => {
     const definition = questionRegistry[type];
@@ -872,7 +932,7 @@ function truncateUtf8(value: string, maxBytes: number): { content: string; trunc
 
 function extractCanonicalAnalysisBody(
   analysis: IntakeAnalysis,
-): Omit<IntakeAnalysis, "analysis_metadata"> {
+): IntakeAnalysisBody {
   return {
     summary: analysis.summary,
     recommended_tranche_title: analysis.recommended_tranche_title,
@@ -889,7 +949,7 @@ function extractCanonicalAnalysisBody(
 function computeAnalysisHash(input: {
   canonicalProjectRoot: string;
   contextHash: string;
-  normalizedBody: Omit<IntakeAnalysis, "analysis_metadata">;
+  normalizedBody: IntakeAnalysisBody;
   promptVersion: string;
   requestHash: string;
   schemaVersion: number;

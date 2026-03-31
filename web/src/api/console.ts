@@ -25,6 +25,9 @@ export interface ProjectWorkspacePayload {
   known_projects: ProjectSummary[];
 }
 
+import type { IntakeAnalysis, StructuredErrorPayload } from "../../../src/modules/intake/contract.js";
+export type { IntakeAnalysis, StructuredErrorPayload } from "../../../src/modules/intake/contract.js";
+
 export interface StatusPayload {
   project: ProjectWorkspacePayload;
   repository_state: {
@@ -143,57 +146,6 @@ export interface ProposalSetPayload {
   content: string;
 }
 
-export interface IntakeQuestion {
-  id: string;
-  display_id: string;
-  type: string;
-  blocking: boolean;
-  default_recommendation: string;
-  consequence_of_non_decision: string;
-  affected_artifacts: string[];
-  status: "open";
-  prompt: string;
-}
-
-export interface IntakeAnalysisMetadataSource {
-  path: string;
-  content_hash: string;
-  truncated: boolean;
-}
-
-export interface IntakeAnalysisMetadataIssue {
-  path: string;
-  reason: string;
-}
-
-export interface IntakeAnalysisMetadata {
-  provider: string;
-  lane: string;
-  configured_model: string;
-  resolved_model: string | null;
-  schema_version: number;
-  prompt_version: string;
-  canonical_project_root: string;
-  request_hash: string;
-  context_hash: string;
-  analysis_hash: string;
-  duration_ms: number;
-  context_sources_used: IntakeAnalysisMetadataSource[];
-  context_sources_missing: IntakeAnalysisMetadataIssue[];
-  context_sources_invalid: IntakeAnalysisMetadataIssue[];
-  context_truncated: boolean;
-}
-
-export interface IntakeAnalysis {
-  summary: string;
-  recommended_tranche_title: string;
-  affected_artifacts: string[];
-  affected_modules: string[];
-  material_questions: IntakeQuestion[];
-  draft_assumptions: string[];
-  analysis_metadata: IntakeAnalysisMetadata;
-}
-
 export class ApiError extends Error {
   readonly details?: Record<string, unknown>;
   readonly errorCode?: string;
@@ -249,13 +201,7 @@ export async function getJson<T>(path: string): Promise<T> {
   return payload as T;
 }
 
-interface ApiErrorPayload {
-  details?: Record<string, unknown>;
-  error?: string;
-  error_code?: string;
-  errors?: string[];
-  retryable?: boolean;
-}
+type ApiErrorPayload = Partial<StructuredErrorPayload>;
 
 function toApiError(payload: ApiErrorPayload, status: number): ApiError {
   return new ApiError(readApiErrorMessage(payload, status), {
@@ -267,12 +213,8 @@ function toApiError(payload: ApiErrorPayload, status: number): ApiError {
 }
 
 function readApiErrorMessage(payload: ApiErrorPayload, status: number): string {
-  if (typeof payload.error === "string") {
-    return payload.error;
-  }
-
-  if (Array.isArray(payload.errors)) {
-    return payload.errors.join("\n");
+  if (typeof payload.message === "string") {
+    return payload.message;
   }
 
   return `request failed with status ${status}`;

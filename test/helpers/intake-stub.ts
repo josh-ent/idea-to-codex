@@ -1,14 +1,18 @@
 import type {
   IntakeAnalysis,
-  IntakeAnalysisClient,
   IntakeModelOutput,
-} from "../../src/modules/intake/service.js";
+} from "../../src/modules/intake/contract.js";
+import type { IntakeAnalysisClient } from "../../src/modules/intake/service.js";
 
 export function createStubIntakeClient(
   resolver: (requestText: string) => IntakeModelOutput = defaultStubModelOutput,
+  options: {
+    onAnalyzeInput?: (input: { configuredModel: string; prompt: string; timeoutMs: number }) => void;
+  } = {},
 ): IntakeAnalysisClient {
   return {
     async analyze(input) {
+      options.onAnalyzeInput?.(input);
       return {
         output: resolver(readRequestFromPrompt(input.prompt)),
         resolvedModel: `${input.configuredModel}-stub`,
@@ -102,8 +106,7 @@ export function writeAnalysisFileContent(analysis: IntakeAnalysis): string {
 
 function readRequestFromPrompt(prompt: string): string {
   const match = /\nRequest:\n([\s\S]*?)\n\nRepository context:\n/.exec(prompt);
-  const requestText = match?.[1]?.trim() ?? "";
-  return requestText === "(empty request)" ? "" : requestText;
+  return match?.[1]?.trim() ?? "";
 }
 
 function matchesAny(value: string, keywords: string[]): boolean {

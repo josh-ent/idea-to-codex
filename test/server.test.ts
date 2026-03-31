@@ -3,11 +3,17 @@ import request from "supertest";
 import path from "node:path";
 
 import { createApp, type ServerAppOptions } from "../src/server/app.js";
+import { analyzeRequest } from "../src/modules/intake/service.js";
 import {
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
+import {
+  intakePromptVersion,
+  intakeSchemaVersion,
+  type IntakeAnalysis,
+} from "../src/modules/intake/contract.js";
 import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const repos: FixtureRepo[] = [];
@@ -19,6 +25,10 @@ afterEach(async () => {
 function track(repo: FixtureRepo): FixtureRepo {
   repos.push(repo);
   return repo;
+}
+
+function cloneAnalysis(analysis: IntakeAnalysis): IntakeAnalysis {
+  return JSON.parse(JSON.stringify(analysis)) as IntakeAnalysis;
 }
 
 function createManagedProjectApp(repo: FixtureRepo) {
@@ -64,7 +74,11 @@ describe("server routes", () => {
     const response = await request(app).post("/api/packages/not-a-type/TRANCHE-001");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe("type must be plan or execution");
+    expect(response.body).toEqual({
+      error_code: "invalid_package_type",
+      message: "type must be plan or execution",
+      retryable: false,
+    });
   });
 
   it("returns a 500 when package generation targets an unknown tranche", async () => {
@@ -77,7 +91,7 @@ describe("server routes", () => {
       .send({ persist: false });
 
     expect(response.status).toBe(500);
-    expect(response.body.error).toContain("Unknown tranche: TRANCHE-999");
+    expect(response.body.message).toContain("Unknown tranche: TRANCHE-999");
   });
 
   it("refreshes and persists both package types through the api", async () => {
@@ -107,7 +121,7 @@ describe("server routes", () => {
       .send({ persist: false });
 
     expect(response.status).toBe(500);
-    expect(response.body.error).toContain("Unknown tranche: TRANCHE-999");
+    expect(response.body.message).toContain("Unknown tranche: TRANCHE-999");
   });
 
   it("returns review payload guidance for missing package coverage", async () => {
@@ -301,8 +315,78 @@ describe("server routes", () => {
       answers: {},
     });
 
-    expect(response.status).toBe(500);
-    expect(response.body.error).toContain("Unanswered blocking material questions");
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      details: {
+        question_ids: ["terminology_integrity", "architecture_direction"],
+      },
+      error_code: "blocking_questions_unanswered",
+      message:
+        "Unanswered blocking material questions: terminology_integrity, architecture_direction",
+      retryable: false,
+    });
+  });
+
+  it("returns unknown answer ids through the same structured error envelope", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createManagedProjectApp(repo);
+
+    const response = await request(app).post("/api/proposals/intake").send({
+      request: "Tidy the current fixture output.",
+      answers: {
+        "Q-001": "This key should be rejected.",
+      },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      details: {
+        question_ids: ["Q-001"],
+      },
+      error_code: "unknown_answer_ids",
+      message: "Unknown material question ids: Q-001",
+      retryable: false,
+    });
+  });
+
+  it("returns schema and prompt mismatch codes through the public api", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const app = createManagedProjectApp(repo);
+    const analysis = await analyzeRequest(repo.rootDir, "Tidy the current fixture output.", {
+      client: createStubIntakeClient(),
+    });
+
+    const schemaMismatch = cloneAnalysis(analysis);
+    schemaMismatch.analysis_metadata.schema_version = intakeSchemaVersion + 1;
+    const schemaResponse = await request(app).post("/api/proposals/intake").send({
+      request: "Tidy the current fixture output.",
+      answers: {},
+      analysis: schemaMismatch,
+    });
+
+    expect(schemaResponse.status).toBe(409);
+    expect(schemaResponse.body).toEqual({
+      error_code: "analysis_schema_version_mismatch",
+      message: "The supplied intake analysis uses an unsupported schema version.",
+      retryable: false,
+    });
+
+    const promptMismatch = cloneAnalysis(analysis);
+    promptMismatch.analysis_metadata.prompt_version = `${intakePromptVersion}-different`;
+    const promptResponse = await request(app).post("/api/proposals/intake").send({
+      request: "Tidy the current fixture output.",
+      answers: {},
+      analysis: promptMismatch,
+    });
+
+    expect(promptResponse.status).toBe(409);
+    expect(promptResponse.body).toEqual({
+      error_code: "analysis_prompt_version_mismatch",
+      message: "The supplied intake analysis uses a different prompt version.",
+      retryable: false,
+    });
   });
 
   it("approves and rejects proposal drafts through the api", async () => {
@@ -343,7 +427,7 @@ describe("server routes", () => {
     const response = await request(app).post("/api/proposals/PROPOSAL-999-BACKLOG/approve");
 
     expect(response.status).toBe(500);
-    expect(response.body.error).toContain("Unknown proposal draft");
+    expect(response.body.message).toContain("Unknown proposal draft");
   });
 
   it("serves the built operator console for non-api routes", async () => {

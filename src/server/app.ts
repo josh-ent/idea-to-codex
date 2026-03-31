@@ -16,12 +16,16 @@ import {
   validateRepository,
 } from "../modules/artifacts/repository.js";
 import { generateReview } from "../modules/governance/review.js";
-import { IntakeError, isIntakeError } from "../modules/intake/errors.js";
+import {
+  IntakeError,
+  isIntakeError,
+  toStructuredErrorPayload,
+} from "../modules/intake/errors.js";
 import {
   analyzeRequest,
-  type IntakeAnalysis,
   type IntakeAnalysisClient,
 } from "../modules/intake/service.js";
+import type { IntakeAnalysis } from "../modules/intake/contract.js";
 import { generatePackage, refreshPackageSet } from "../modules/packaging/service.js";
 import {
   createProject,
@@ -190,7 +194,9 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
         tranche_id: request.params.trancheId,
       });
       response.status(400).json({
-        error: "type must be plan or execution",
+        error_code: "invalid_package_type",
+        message: "type must be plan or execution",
+        retryable: false,
       });
       return;
     }
@@ -344,9 +350,8 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
       response: express.Response,
       _next: express.NextFunction,
     ) => {
-      const statusCode = error instanceof ApiRequestError ? error.status : isIntakeError(error) ? error.status : 500;
-      const errorCode =
-        error instanceof ApiRequestError ? error.code : isIntakeError(error) ? error.code : undefined;
+      const statusCode = isIntakeError(error) ? error.status : 500;
+      const errorCode = isIntakeError(error) ? error.code : "internal_error";
 
       logger.error("request failed", {
         ...summarizeRequest(request),
@@ -355,18 +360,15 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
         ...summarizeError(error),
       });
 
-      if (error instanceof ApiRequestError || isIntakeError(error)) {
-        response.status(statusCode).json({
-          error: error.message,
-          error_code: error.code,
-          retryable: error.retryable,
-          details: error.details,
-        });
+      if (isIntakeError(error)) {
+        response.status(statusCode).json(toStructuredErrorPayload(error));
         return;
       }
 
       response.status(500).json({
-        error: error instanceof Error ? error.message : "unknown error",
+        error_code: "internal_error",
+        message: error instanceof Error ? error.message : "unknown error",
+        retryable: false,
       });
     },
   );
@@ -384,37 +386,12 @@ async function requireActiveProjectRoot(
     logger.warn("request requires an active project but none is selected", {
       studio_root: studioRoot,
     });
-    throw new ApiRequestError("active_project_missing", "No active project selected.", {
+    throw new IntakeError("active_project_missing", "No active project selected.", {
       retryable: false,
-      status: 409,
     });
   }
 
   return workspace.active_project.path;
-}
-
-class ApiRequestError extends Error {
-  readonly code: string;
-  readonly details?: Record<string, unknown>;
-  readonly retryable: boolean;
-  readonly status: number;
-
-  constructor(
-    code: string,
-    message: string,
-    options: {
-      details?: Record<string, unknown>;
-      retryable?: boolean;
-      status: number;
-    },
-  ) {
-    super(message);
-    this.name = "ApiRequestError";
-    this.code = code;
-    this.details = options.details;
-    this.retryable = options.retryable ?? false;
-    this.status = options.status;
-  }
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

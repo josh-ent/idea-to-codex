@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { analyzeRequest } from "../src/modules/intake/service.js";
+import type { IntakeModelOutput } from "../src/modules/intake/contract.js";
 import { validateRepository } from "../src/modules/artifacts/repository.js";
 import {
   approveProposalDraft,
@@ -30,6 +32,14 @@ function stubOptions() {
   return {
     client: createStubIntakeClient(),
   };
+}
+
+function mapDraftContentByArtifact(proposalSet: Awaited<ReturnType<typeof generateIntakeProposalSet>>) {
+  return Object.fromEntries(
+    proposalSet.drafts
+      .map((draft) => [draft.record.target_artifact, draft.proposedContent] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 describe("proposal workflow", () => {
@@ -95,6 +105,92 @@ describe("proposal workflow", () => {
     expect(
       proposalSet.drafts.some((draft) => draft.record.target_artifact.startsWith("docs/decisions/")),
     ).toBe(true);
+  });
+
+  it("keeps proposal artefact content byte-identical for canonical omitted and supplied analysis paths", async () => {
+    const omittedRepo = track(await createFixtureRepo());
+    const suppliedRepo = track(await createFixtureRepo());
+    await seedValidRepository(omittedRepo);
+    await seedValidRepository(suppliedRepo);
+
+    const requestText = "Rename the glossary term and change the backend architecture.";
+    const answers = {
+      terminology_integrity: "Canonical replacement: `Proposal Draft`.",
+      architecture_direction:
+        "The backend owns truth mutation and the console only requests approval.",
+    };
+
+    const omittedProposalSet = await generateIntakeProposalSet(
+      omittedRepo.rootDir,
+      requestText,
+      answers,
+      stubOptions(),
+    );
+    const canonicalSuppliedAnalysis = await analyzeRequest(suppliedRepo.rootDir, requestText, {
+      client: createStubIntakeClient(),
+    });
+    const suppliedAnalysis = JSON.parse(JSON.stringify(canonicalSuppliedAnalysis));
+
+    suppliedAnalysis.material_questions = [...suppliedAnalysis.material_questions]
+      .reverse()
+      .map((question: (typeof canonicalSuppliedAnalysis.material_questions)[number]) => ({
+        ...question,
+        display_id: "Q-999",
+      }));
+    suppliedAnalysis.affected_artifacts = [
+      "",
+      ...canonicalSuppliedAnalysis.affected_artifacts,
+      canonicalSuppliedAnalysis.affected_artifacts[0] ?? "",
+    ];
+    suppliedAnalysis.affected_modules = [
+      "",
+      ...canonicalSuppliedAnalysis.affected_modules,
+      canonicalSuppliedAnalysis.affected_modules[0] ?? "",
+    ];
+
+    const suppliedProposalSet = await generateIntakeProposalSet(
+      suppliedRepo.rootDir,
+      requestText,
+      answers,
+      {
+        analysis: suppliedAnalysis,
+      },
+    );
+
+    expect(mapDraftContentByArtifact(suppliedProposalSet)).toEqual(
+      mapDraftContentByArtifact(omittedProposalSet),
+    );
+  });
+
+  it("does not let advisory affected artefacts or modules override backend-owned question semantics", async () => {
+    const repo = track(await createFixtureRepo());
+    await seedValidRepository(repo);
+    const analysis = await analyzeRequest(repo.rootDir, "Tidy the current fixture output.", {
+      client: createStubIntakeClient(
+        () =>
+          ({
+            summary: "Tidy the current fixture output.",
+            recommended_tranche_title: "Tidy Fixture Output",
+            affected_artifacts: ["ARCHITECTURE.md", "docs/decisions/"],
+            affected_modules: ["server", "ui"],
+            question_types: ["bounded_change"],
+            draft_assumptions: [],
+          }) satisfies IntakeModelOutput,
+      ),
+    });
+
+    const proposalSet = await generateIntakeProposalSet(
+      repo.rootDir,
+      "Tidy the current fixture output.",
+      {},
+      {
+        analysis,
+      },
+    );
+
+    expect(
+      proposalSet.drafts.some((draft) => draft.record.target_artifact.startsWith("docs/decisions/")),
+    ).toBe(false);
   });
 
   it("creates review follow-up drafts only for supported artefacts", async () => {

@@ -30,9 +30,10 @@ import {
 } from "../governance/workflow.js";
 import {
   resolveIntakeAnalysis,
-  type IntakeAnalysis,
   type IntakeAnalysisOptions,
 } from "../intake/service.js";
+import type { IntakeAnalysis } from "../intake/contract.js";
+import { IntakeError } from "../intake/errors.js";
 import {
   buildAssumptionsProposal,
   buildBacklogProposal,
@@ -191,15 +192,31 @@ export async function generateIntakeProposalSet(
       );
 
       if (unanswered.length > 0) {
-        throw new Error(
+        throw new IntakeError(
+          "blocking_questions_unanswered",
           `Unanswered blocking material questions: ${unanswered
             .map((question) => question.id)
             .join(", ")}`,
+          {
+            details: {
+              question_ids: unanswered.map((question) => question.id),
+            },
+            retryable: false,
+          },
         );
       }
 
       if (unknownAnswerIds.length > 0) {
-        throw new Error(`Unknown material question ids: ${unknownAnswerIds.join(", ")}`);
+        throw new IntakeError(
+          "unknown_answer_ids",
+          `Unknown material question ids: ${unknownAnswerIds.join(", ")}`,
+          {
+            details: {
+              question_ids: unknownAnswerIds,
+            },
+            retryable: false,
+          },
+        );
       }
 
       const setId = nextIdentifier(
@@ -451,7 +468,6 @@ export async function generateIntakeProposalSet(
         summary: `Draft proposals generated from intake request: ${analysis.summary}`,
         sourceContext: [
           `- Raw request: ${requestText.trim() || "No request provided."}`,
-          `- Intake analysis hash: ${analysis.analysis_metadata.analysis_hash}`,
           ...formatAnswerLines(answers),
         ],
         drafts: draftInputs,

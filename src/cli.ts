@@ -12,7 +12,8 @@ import {
   rejectProposalDraft,
 } from "./modules/proposals/service.js";
 import fs from "node:fs/promises";
-import { type IntakeAnalysis, resolveIntakeAnalysis } from "./modules/intake/service.js";
+import { resolveIntakeAnalysis } from "./modules/intake/service.js";
+import type { IntakeAnalysis } from "./modules/intake/contract.js";
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
