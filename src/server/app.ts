@@ -2,6 +2,12 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  createLogger,
+  generateRequestId,
+  summarizeError,
+  withLogContext,
+} from "../runtime/logging.js";
 import { getRepositoryState } from "../modules/artifacts/git.js";
 import {
   bootstrapRepository,
@@ -28,12 +34,55 @@ import {
   rejectProposalDraft,
 } from "../modules/proposals/service.js";
 
+const logger = createLogger("server");
+
 export function createApp(studioRoot: string, options: ProjectServiceOptions = {}) {
   const app = express();
   const webDistPath = path.join(studioRoot, "web/dist");
   const webIndexPath = path.join(webDistPath, "index.html");
 
   app.use(express.json());
+  app.use((request, response, next) => {
+    const requestId = generateRequestId();
+    const requestPath = request.originalUrl || request.path;
+    const requestLogger = logger.child("request", {
+      request_id: requestId,
+      request_method: request.method,
+      request_path: requestPath,
+    });
+    const startedAt = Date.now();
+    let responseFinished = false;
+
+    response.on("finish", () => {
+      responseFinished = true;
+      requestLogger.info("request completed", {
+        duration_ms: Date.now() - startedAt,
+        response_content_length: response.getHeader("content-length"),
+        status_code: response.statusCode,
+      });
+    });
+
+    response.on("close", () => {
+      if (!responseFinished) {
+        requestLogger.warn("request closed before completion", {
+          duration_ms: Date.now() - startedAt,
+          status_code: response.statusCode,
+        });
+      }
+    });
+
+    withLogContext(
+      {
+        request_id: requestId,
+        request_method: request.method,
+        request_path: requestPath,
+      },
+      () => {
+        requestLogger.debug("request received", summarizeRequest(request));
+        next();
+      },
+    );
+  });
 
   app.get("/api/health", (_request, response) => {
     response.json({ ok: true });
@@ -127,6 +176,10 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
 
   app.post("/api/packages/:type/:trancheId", async (request, response, next) => {
     if (request.params.type !== "plan" && request.params.type !== "execution") {
+      logger.warn("request rejected due to invalid package type", {
+        package_type: request.params.type,
+        tranche_id: request.params.trancheId,
+      });
       response.status(400).json({
         error: "type must be plan or execution",
       });
@@ -267,10 +320,15 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
   app.use(
     (
       error: unknown,
-      _request: express.Request,
+      request: express.Request,
       response: express.Response,
       _next: express.NextFunction,
     ) => {
+      logger.error("request failed", {
+        ...summarizeRequest(request),
+        status_code: 500,
+        ...summarizeError(error),
+      });
       response.status(500).json({
         error: error instanceof Error ? error.message : "unknown error",
       });
@@ -287,6 +345,9 @@ async function requireActiveProjectRoot(
   const workspace = await getProjectWorkspace(studioRoot, options);
 
   if (!workspace.active_project) {
+    logger.warn("request requires an active project but none is selected", {
+      studio_root: studioRoot,
+    });
     throw new Error("No active project selected.");
   }
 
@@ -323,4 +384,68 @@ function unavailableRepositoryState() {
     is_dirty: false,
     is_main_branch: false,
   };
+}
+
+function summarizeRequest(request: express.Request) {
+  return {
+    body: summarizeBody(request.body),
+    params: Object.keys(request.params).length > 0 ? request.params : undefined,
+    query: Object.keys(request.query).length > 0 ? request.query : undefined,
+  };
+}
+
+function summarizeBody(body: unknown) {
+  if (body === undefined || body === null) {
+    return undefined;
+  }
+
+  if (typeof body === "string") {
+    return {
+      length: body.length,
+      preview: body.slice(0, 120),
+      type: "string",
+    };
+  }
+
+  if (typeof body !== "object") {
+    return {
+      type: typeof body,
+      value: body,
+    };
+  }
+
+  const entries = Object.entries(body as Record<string, unknown>);
+
+  return Object.fromEntries(
+    entries.map(([key, value]) => [
+      key,
+      summarizeBodyValue(value),
+    ]),
+  );
+}
+
+function summarizeBodyValue(value: unknown) {
+  if (typeof value === "string") {
+    return {
+      length: value.length,
+      preview: value.slice(0, 120),
+      type: "string",
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      length: value.length,
+      type: "array",
+    };
+  }
+
+  if (value && typeof value === "object") {
+    return {
+      keys: Object.keys(value as Record<string, unknown>),
+      type: "object",
+    };
+  }
+
+  return value;
 }

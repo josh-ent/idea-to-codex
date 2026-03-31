@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { createLogger, logOperation } from "../../runtime/logging.js";
 import {
   defaultExecutionConduct,
 } from "../artifacts/contracts.js";
@@ -22,69 +23,97 @@ import {
   packageValidationRequirements,
 } from "./model.js";
 
+const logger = createLogger("packaging");
+
 export async function generatePackage(
   rootDir: string,
   type: "plan" | "execution",
   trancheId: string,
   persist = true,
 ) {
-  const validation = await validateRepository(rootDir);
-  const validationErrors = collectValidationErrors(validation);
+  return logOperation(
+    logger,
+    "generate package",
+    async () => {
+      const validation = await validateRepository(rootDir);
+      const validationErrors = collectValidationErrors(validation);
 
-  if (validationErrors.length > 0) {
-    throw new Error(`repository validation failed:\n${validationErrors.join("\n")}`);
-  }
+      if (validationErrors.length > 0) {
+        throw new Error(`repository validation failed:\n${validationErrors.join("\n")}`);
+      }
 
-  const trancheRecord = await loadTranche(rootDir, trancheId);
-  const tranche = trancheRecord.frontmatter!;
-  const decisions = linkedDecisionsForTranche(
-    tranche,
-    (await loadDecisions(rootDir))
-    .filter((record) => record.frontmatter && record.errors.length === 0)
-    .map((record) => record.frontmatter!)
-  );
-  const assumptions = linkedAssumptionsForTranche(tranche, validation.assumptions);
-  const glossaryTerms = linkedGlossaryTermsForTranche(tranche, validation.glossaryTerms);
-  const acceptanceCriteria = sectionToBulletList(
-    sectionContent(trancheRecord.content, "Acceptance criteria"),
-  );
-  const scope = sectionContent(trancheRecord.content, "Scope");
-  const outOfScope = sectionContent(trancheRecord.content, "Out of scope");
-  const risks = sectionContent(trancheRecord.content, "Risks / tensions");
+      const trancheRecord = await loadTranche(rootDir, trancheId);
+      const tranche = trancheRecord.frontmatter!;
+      const decisions = linkedDecisionsForTranche(
+        tranche,
+        (await loadDecisions(rootDir))
+          .filter((record) => record.frontmatter && record.errors.length === 0)
+          .map((record) => record.frontmatter!),
+      );
+      const assumptions = linkedAssumptionsForTranche(tranche, validation.assumptions);
+      const glossaryTerms = linkedGlossaryTermsForTranche(tranche, validation.glossaryTerms);
+      const acceptanceCriteria = sectionToBulletList(
+        sectionContent(trancheRecord.content, "Acceptance criteria"),
+      );
+      const scope = sectionContent(trancheRecord.content, "Scope");
+      const outOfScope = sectionContent(trancheRecord.content, "Out of scope");
+      const risks = sectionContent(trancheRecord.content, "Risks / tensions");
 
-  const id = `${type.toUpperCase()}-${tranche.id}`;
-  const relativePath = `handoffs/${type}/${tranche.id.toLowerCase()}-${type}.md`;
-  const content = buildPackageMarkdown({
-    id,
-    type,
-    tranche,
-    decisions,
-    assumptions,
-    glossaryTerms,
-    acceptanceCriteria,
-    scope,
-    outOfScope,
-    risks,
-    openQuestions: validation.openQuestions,
-  });
+      const id = `${type.toUpperCase()}-${tranche.id}`;
+      const relativePath = `handoffs/${type}/${tranche.id.toLowerCase()}-${type}.md`;
+      const content = buildPackageMarkdown({
+        id,
+        type,
+        tranche,
+        decisions,
+        assumptions,
+        glossaryTerms,
+        acceptanceCriteria,
+        scope,
+        outOfScope,
+        risks,
+        openQuestions: validation.openQuestions,
+      });
 
-  if (persist) {
-    const absolutePath = path.join(rootDir, relativePath);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, content, "utf8");
-  }
+      if (persist) {
+        const absolutePath = path.join(rootDir, relativePath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content, "utf8");
+      }
 
-  return {
-    id,
-    relativePath,
-    record: {
-      id,
-      type,
-      source_tranche: tranche.id,
+      return {
+        id,
+        relativePath,
+        record: {
+          id,
+          type,
+          source_tranche: tranche.id,
+        },
+        path: relativePath,
+        content,
+        diagnostics: {
+          acceptance_criteria_count: acceptanceCriteria.length,
+          assumption_count: assumptions.length,
+          decision_count: decisions.length,
+          glossary_term_count: glossaryTerms.length,
+          open_question_count: validation.openQuestions.length,
+        },
+      };
     },
-    path: relativePath,
-    content,
-  };
+    {
+      fields: {
+        persist,
+        root_dir: rootDir,
+        tranche_id: trancheId,
+        type,
+      },
+      summarizeResult: (result) => ({
+        ...result.diagnostics,
+        output_path: result.relativePath,
+        package_id: result.id,
+      }),
+    },
+  ).then(({ diagnostics: _diagnostics, ...result }) => result);
 }
 
 export async function refreshPackageSet(
@@ -92,15 +121,32 @@ export async function refreshPackageSet(
   trancheId: string,
   persist = true,
 ) {
-  const packages = await Promise.all([
-    generatePackage(rootDir, "plan", trancheId, persist),
-    generatePackage(rootDir, "execution", trancheId, persist),
-  ]);
+  return logOperation(
+    logger,
+    "refresh package set",
+    async () => {
+      const packages = await Promise.all([
+        generatePackage(rootDir, "plan", trancheId, persist),
+        generatePackage(rootDir, "execution", trancheId, persist),
+      ]);
 
-  return {
-    tranche_id: trancheId,
-    packages,
-  };
+      return {
+        tranche_id: trancheId,
+        packages,
+      };
+    },
+    {
+      fields: {
+        persist,
+        root_dir: rootDir,
+        tranche_id: trancheId,
+      },
+      summarizeResult: (result) => ({
+        package_count: result.packages.length,
+        package_ids: result.packages.map((entry) => entry.id),
+      }),
+    },
+  );
 }
 
 function buildPackageMarkdown(input: {

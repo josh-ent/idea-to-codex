@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { createLogger, logOperation } from "../../runtime/logging.js";
 import { getRepositoryState } from "../artifacts/git.js";
 import { formatInlineList } from "../artifacts/markdown.js";
 import {
@@ -27,6 +28,8 @@ import {
   missingWorkflowFields as findMissingWorkflowFields,
 } from "./workflow.js";
 
+const logger = createLogger("governance.review");
+
 export interface GeneratedReview {
   id: string;
   relativePath: string;
@@ -47,29 +50,48 @@ export async function generateReview(
   trancheId: string,
   persist = true,
 ): Promise<GeneratedReview> {
-  const validation = await validateRepository(rootDir);
-  const trancheRecord = await loadTranche(rootDir, trancheId);
-  const tranche = trancheRecord.frontmatter!;
-  const repositoryState = await getRepositoryState(rootDir);
-  const packageAlignmentDrift = await findPackageAlignmentDrift(
-    rootDir,
-    tranche.id,
-    validation,
-  );
-  const review = buildReviewRecord(
-    validation,
-    tranche,
-    repositoryState,
-    packageAlignmentDrift,
-  );
+  return logOperation(
+    logger,
+    "generate review",
+    async () => {
+      const validation = await validateRepository(rootDir);
+      const trancheRecord = await loadTranche(rootDir, trancheId);
+      const tranche = trancheRecord.frontmatter!;
+      const repositoryState = await getRepositoryState(rootDir);
+      const packageAlignmentDrift = await findPackageAlignmentDrift(
+        rootDir,
+        tranche.id,
+        validation,
+      );
+      const review = buildReviewRecord(
+        validation,
+        tranche,
+        repositoryState,
+        packageAlignmentDrift,
+      );
 
-  if (persist) {
-    const absolutePath = path.join(rootDir, review.relativePath);
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, review.content, "utf8");
-  }
+      if (persist) {
+        const absolutePath = path.join(rootDir, review.relativePath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, review.content, "utf8");
+      }
 
-  return review;
+      return review;
+    },
+    {
+      fields: {
+        persist,
+        root_dir: rootDir,
+        tranche_id: trancheId,
+      },
+      summarizeResult: (review) => ({
+        drift_signal_count: review.record.drift_signals.length,
+        missing_package_types: review.record.missing_package_types,
+        review_id: review.id,
+        status: review.record.status,
+      }),
+    },
+  );
 }
 
 function buildReviewRecord(

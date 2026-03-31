@@ -4,10 +4,12 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { createLogger, logOperation } from "../../runtime/logging.js";
 import { bootstrapRepository, validateRepository } from "../artifacts/repository.js";
 import { getRepositoryState, initializeGitRepository } from "../artifacts/git.js";
 
 const execFileAsync = promisify(execFile);
+const logger = createLogger("projects");
 
 interface WorkspaceState {
   active_project_path: string | null;
@@ -47,33 +49,55 @@ export async function getProjectWorkspace(
   studioRoot: string,
   options: ProjectServiceOptions = {},
 ): Promise<ProjectWorkspace> {
-  const state = await readWorkspaceState(studioRoot, options);
-  const activeProjectPath = normalizeActiveProjectPath(state, options.fallbackActiveProjectRoot);
-  const knownProjectPaths = [
-    ...new Set(
-      [activeProjectPath, ...state.known_project_paths]
-        .filter((value): value is string => Boolean(value)),
-    ),
-  ];
-  const summaries = await Promise.all(
-    knownProjectPaths.map((projectPath) =>
-      toProjectSummary(projectPath, projectPath === activeProjectPath),
-    ),
+  return logOperation(
+    logger,
+    "load project workspace",
+    async () => {
+      const state = await readWorkspaceState(studioRoot, options);
+      const activeProjectPath = normalizeActiveProjectPath(state, options.fallbackActiveProjectRoot);
+      const knownProjectPaths = [
+        ...new Set(
+          [activeProjectPath, ...state.known_project_paths]
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ];
+      const summaries = await Promise.all(
+        knownProjectPaths.map((projectPath) =>
+          toProjectSummary(projectPath, projectPath === activeProjectPath),
+        ),
+      );
+      const knownProjects = summaries.filter((project): project is ProjectSummary => project !== null);
+      const activeProject = knownProjects.find((project) => project.is_active) ?? null;
+
+      if (needsWorkspaceRewrite(state, activeProject, knownProjects)) {
+        logger.debug("rewriting workspace state", {
+          active_project_path: activeProject?.path ?? null,
+          known_project_paths: knownProjects.map((project) => project.path),
+        });
+        await writeWorkspaceState(studioRoot, options, {
+          active_project_path: activeProject?.path ?? null,
+          known_project_paths: knownProjects.map((project) => project.path),
+        });
+      }
+
+      return {
+        active_project: activeProject,
+        known_projects: knownProjects,
+      };
+    },
+    {
+      fields: {
+        fallback_active_project_root: options.fallbackActiveProjectRoot,
+        studio_root: studioRoot,
+      },
+      startLevel: "debug",
+      successLevel: "debug",
+      summarizeResult: (workspace) => ({
+        active_project_path: workspace.active_project?.path ?? null,
+        known_project_count: workspace.known_projects.length,
+      }),
+    },
   );
-  const knownProjects = summaries.filter((project): project is ProjectSummary => project !== null);
-  const activeProject = knownProjects.find((project) => project.is_active) ?? null;
-
-  if (needsWorkspaceRewrite(state, activeProject, knownProjects)) {
-    await writeWorkspaceState(studioRoot, options, {
-      active_project_path: activeProject?.path ?? null,
-      known_project_paths: knownProjects.map((project) => project.path),
-    });
-  }
-
-  return {
-    active_project: activeProject,
-    known_projects: knownProjects,
-  };
 }
 
 export async function createProject(
@@ -81,37 +105,55 @@ export async function createProject(
   input: CreateProjectInput,
   options: ProjectServiceOptions = {},
 ): Promise<ProjectWorkspace> {
-  const projectName = input.project_name.trim();
-  const projectRoot = resolveProjectPath(studioRoot, input.project_path);
+  return logOperation(
+    logger,
+    "create project",
+    async () => {
+      const projectName = input.project_name.trim();
+      const projectRoot = resolveProjectPath(studioRoot, input.project_path);
 
-  if (!projectName) {
-    throw new Error("project_name is required");
-  }
+      if (!projectName) {
+        throw new Error("project_name is required");
+      }
 
-  if (!input.project_path.trim()) {
-    throw new Error("project_path is required");
-  }
+      if (!input.project_path.trim()) {
+        throw new Error("project_path is required");
+      }
 
-  if (await pathExists(projectRoot)) {
-    const entries = await fs.readdir(projectRoot);
+      if (await pathExists(projectRoot)) {
+        const entries = await fs.readdir(projectRoot);
 
-    if (entries.length > 0) {
-      throw new Error(`project path already exists and is not empty: ${projectRoot}`);
-    }
-  } else {
-    await fs.mkdir(projectRoot, { recursive: true });
-  }
+        if (entries.length > 0) {
+          throw new Error(`project path already exists and is not empty: ${projectRoot}`);
+        }
+      } else {
+        await fs.mkdir(projectRoot, { recursive: true });
+      }
 
-  await bootstrapRepository(projectRoot, { projectName });
+      await bootstrapRepository(projectRoot, { projectName });
 
-  if (input.initialize_git !== false) {
-    await initializeGitRepository(projectRoot);
-  }
+      if (input.initialize_git !== false) {
+        await initializeGitRepository(projectRoot);
+      }
 
-  await validateRepository(projectRoot);
-  await persistWorkspaceProject(studioRoot, projectRoot, options);
+      await validateRepository(projectRoot);
+      await persistWorkspaceProject(studioRoot, projectRoot, options);
 
-  return getProjectWorkspace(studioRoot, options);
+      return getProjectWorkspace(studioRoot, options);
+    },
+    {
+      fields: {
+        initialize_git: input.initialize_git !== false,
+        project_name: input.project_name.trim(),
+        project_path: input.project_path.trim(),
+        studio_root: studioRoot,
+      },
+      summarizeResult: (workspace) => ({
+        active_project_path: workspace.active_project?.path ?? null,
+        known_project_count: workspace.known_projects.length,
+      }),
+    },
+  );
 }
 
 export async function openProject(
@@ -119,20 +161,36 @@ export async function openProject(
   projectPath: string,
   options: ProjectServiceOptions = {},
 ): Promise<ProjectWorkspace> {
-  const resolvedProjectPath = resolveProjectPath(studioRoot, projectPath);
-  const stats = await fs.stat(resolvedProjectPath).catch(() => null);
+  return logOperation(
+    logger,
+    "open project",
+    async () => {
+      const resolvedProjectPath = resolveProjectPath(studioRoot, projectPath);
+      const stats = await fs.stat(resolvedProjectPath).catch(() => null);
 
-  if (!projectPath.trim()) {
-    throw new Error("project_path is required");
-  }
+      if (!projectPath.trim()) {
+        throw new Error("project_path is required");
+      }
 
-  if (!stats?.isDirectory()) {
-    throw new Error(`project path does not exist: ${resolvedProjectPath}`);
-  }
+      if (!stats?.isDirectory()) {
+        throw new Error(`project path does not exist: ${resolvedProjectPath}`);
+      }
 
-  await persistWorkspaceProject(studioRoot, resolvedProjectPath, options);
+      await persistWorkspaceProject(studioRoot, resolvedProjectPath, options);
 
-  return getProjectWorkspace(studioRoot, options);
+      return getProjectWorkspace(studioRoot, options);
+    },
+    {
+      fields: {
+        project_path: projectPath.trim(),
+        studio_root: studioRoot,
+      },
+      summarizeResult: (workspace) => ({
+        active_project_path: workspace.active_project?.path ?? null,
+        known_project_count: workspace.known_projects.length,
+      }),
+    },
+  );
 }
 
 export async function selectProjectDirectory(
@@ -140,19 +198,37 @@ export async function selectProjectDirectory(
   input: SelectDirectoryInput,
   options: ProjectServiceOptions = {},
 ): Promise<string | null> {
-  const initialPath = resolveInitialDirectory(studioRoot, input.initial_path);
+  return logOperation(
+    logger,
+    "select project directory",
+    async () => {
+      const initialPath = resolveInitialDirectory(studioRoot, input.initial_path);
 
-  if (options.selectDirectory) {
-    return options.selectDirectory({
-      initial_path: initialPath,
-      dialog_title: input.dialog_title,
-    });
-  }
+      if (options.selectDirectory) {
+        return options.selectDirectory({
+          initial_path: initialPath,
+          dialog_title: input.dialog_title,
+        });
+      }
 
-  return openNativeDirectoryDialog({
-    initial_path: initialPath,
-    dialog_title: input.dialog_title ?? "Select project folder",
-  });
+      return openNativeDirectoryDialog({
+        initial_path: initialPath,
+        dialog_title: input.dialog_title ?? "Select project folder",
+      });
+    },
+    {
+      fields: {
+        dialog_title: input.dialog_title,
+        initial_path: input.initial_path,
+        studio_root: studioRoot,
+      },
+      startLevel: "debug",
+      successLevel: "info",
+      summarizeResult: (selectedPath) => ({
+        selected_path: selectedPath,
+      }),
+    },
+  );
 }
 
 function normalizeActiveProjectPath(
@@ -193,6 +269,11 @@ async function persistWorkspaceProject(
   await writeWorkspaceState(studioRoot, options, {
     active_project_path: projectRoot,
     known_project_paths: knownProjectPaths,
+  });
+  logger.debug("persisted workspace project", {
+    active_project_path: projectRoot,
+    known_project_count: knownProjectPaths.length,
+    studio_root: studioRoot,
   });
 }
 

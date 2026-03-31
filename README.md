@@ -54,6 +54,14 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run dev:web` starts the Vue.js operator console in development.
 - `npm run test` runs the automated tests.
 
+## Backend logging
+
+- Backend logs write to stderr with timestamps, scope labels, request ids, and operation durations.
+- Development defaults to full verbosity with `trace` level logging.
+- Production defaults to `info`.
+- Test runs default to `error` to keep automated output readable.
+- Override the level with `IDEA_TO_CODEX_LOG_LEVEL=trace|debug|info|warn|error|silent` or `LOG_LEVEL=...`.
+
 ## First use
 
 - Start the backend with `npm run dev`.

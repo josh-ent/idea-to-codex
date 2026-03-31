@@ -4,6 +4,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import type { ZodType } from "zod";
 
+import { createLogger, logOperation } from "../../runtime/logging.js";
 import {
   baselineTemplates,
   decisionSections,
@@ -50,6 +51,8 @@ import {
 } from "../packaging/model.js";
 import { buildTraceLinks, type TraceLink } from "../traceability/links.js";
 
+const logger = createLogger("artifacts.repository");
+
 export interface PresenceCheck {
   path: string;
   exists: boolean;
@@ -85,191 +88,247 @@ export async function bootstrapRepository(
   rootDir: string,
   options?: { projectName?: string },
 ): Promise<string[]> {
-  const created: string[] = [];
   const projectName = options?.projectName?.trim() || "New Project";
 
-  for (const relativePath of requiredDirectories) {
-    const absolutePath = path.join(rootDir, relativePath);
+  return logOperation(
+    logger,
+    "bootstrap repository",
+    async () => {
+      const created: string[] = [];
 
-    try {
-      await fs.access(absolutePath);
-    } catch {
-      await fs.mkdir(absolutePath, { recursive: true });
-      created.push(relativePath);
-    }
-  }
+      for (const relativePath of requiredDirectories) {
+        const absolutePath = path.join(rootDir, relativePath);
 
-  for (const template of baselineTemplates(projectName)) {
-    const absolutePath = path.join(rootDir, template.path);
+        try {
+          await fs.access(absolutePath);
+        } catch {
+          await fs.mkdir(absolutePath, { recursive: true });
+          created.push(relativePath);
+        }
+      }
 
-    try {
-      await fs.access(absolutePath);
-    } catch {
-      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-      await fs.writeFile(absolutePath, template.content, "utf8");
-      created.push(template.path);
-    }
-  }
+      for (const template of baselineTemplates(projectName)) {
+        const absolutePath = path.join(rootDir, template.path);
 
-  return created;
+        try {
+          await fs.access(absolutePath);
+        } catch {
+          await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+          await fs.writeFile(absolutePath, template.content, "utf8");
+          created.push(template.path);
+        }
+      }
+
+      return created;
+    },
+    {
+      fields: {
+        project_name: projectName,
+        root_dir: rootDir,
+      },
+      summarizeResult: (created) => ({
+        created_count: created.length,
+        created_paths: created,
+      }),
+    },
+  );
 }
 
 export async function validateRepository(rootDir: string): Promise<RepositoryValidation> {
-  const rootFiles = await Promise.all(
-    requiredTopLevelFiles.map(async (relativePath) => ({
-      path: relativePath,
-      exists: await exists(path.join(rootDir, relativePath)),
-    })),
-  );
+  return logOperation(
+    logger,
+    "validate repository",
+    async () => {
+      const rootFiles = await Promise.all(
+        requiredTopLevelFiles.map(async (relativePath) => ({
+          path: relativePath,
+          exists: await exists(path.join(rootDir, relativePath)),
+        })),
+      );
 
-  const directories = await Promise.all(
-    requiredDirectories.map(async (relativePath) => ({
-      path: relativePath,
-      exists: await exists(path.join(rootDir, relativePath)),
-    })),
-  );
+      const directories = await Promise.all(
+        requiredDirectories.map(async (relativePath) => ({
+          path: relativePath,
+          exists: await exists(path.join(rootDir, relativePath)),
+        })),
+      );
 
-  const decisions = await loadRecordDirectory(
-    rootDir,
-    path.join(rootDir, "docs/decisions"),
-    decisionFrontmatterSchema,
-    decisionSections,
-  );
+      const decisions = await loadRecordDirectory(
+        rootDir,
+        path.join(rootDir, "docs/decisions"),
+        decisionFrontmatterSchema,
+        decisionSections,
+      );
 
-  const proposalSets = await loadProposalSetRecords(rootDir);
-  const proposalDrafts = await loadProposalDraftRecords(rootDir);
+      const proposalSets = await loadProposalSetRecords(rootDir);
+      const proposalDrafts = await loadProposalDraftRecords(rootDir);
 
-  const tranches = await loadRecordDirectory(
-    rootDir,
-    path.join(rootDir, "docs/tranches"),
-    trancheFrontmatterSchema,
-    trancheSections,
-  );
+      const tranches = await loadRecordDirectory(
+        rootDir,
+        path.join(rootDir, "docs/tranches"),
+        trancheFrontmatterSchema,
+        trancheSections,
+      );
 
-  const reviews = await loadRecordDirectory(
-    rootDir,
-    path.join(rootDir, "docs/reviews"),
-    reviewFrontmatterSchema,
-    reviewSections,
-  );
+      const reviews = await loadRecordDirectory(
+        rootDir,
+        path.join(rootDir, "docs/reviews"),
+        reviewFrontmatterSchema,
+        reviewSections,
+      );
 
-  const planPackages = await loadHandoffDirectory(
-    rootDir,
-    path.join(rootDir, "handoffs/plan"),
-    "plan",
-    planTemplateSections,
-  );
+      const planPackages = await loadHandoffDirectory(
+        rootDir,
+        path.join(rootDir, "handoffs/plan"),
+        "plan",
+        planTemplateSections,
+      );
 
-  const executionPackages = await loadHandoffDirectory(
-    rootDir,
-    path.join(rootDir, "handoffs/execution"),
-    "execution",
-    executionTemplateSections,
-  );
+      const executionPackages = await loadHandoffDirectory(
+        rootDir,
+        path.join(rootDir, "handoffs/execution"),
+        "execution",
+        executionTemplateSections,
+      );
 
-  const planTemplate = await loadSingleRecord(
-    rootDir,
-    path.join(rootDir, "prompts/templates/plan-package.md"),
-    promptTemplateSchema.refine((value) => value.template_type === "plan", {
-      path: ["template_type"],
-      message: "template_type must be plan",
-    }),
-    planTemplateSections,
-  );
+      const planTemplate = await loadSingleRecord(
+        rootDir,
+        path.join(rootDir, "prompts/templates/plan-package.md"),
+        promptTemplateSchema.refine((value) => value.template_type === "plan", {
+          path: ["template_type"],
+          message: "template_type must be plan",
+        }),
+        planTemplateSections,
+      );
 
-  const executionTemplate = await loadSingleRecord(
-    rootDir,
-    path.join(rootDir, "prompts/templates/execution-package.md"),
-    promptTemplateSchema.refine((value) => value.template_type === "execution", {
-      path: ["template_type"],
-      message: "template_type must be execution",
-    }),
-    executionTemplateSections,
-  );
+      const executionTemplate = await loadSingleRecord(
+        rootDir,
+        path.join(rootDir, "prompts/templates/execution-package.md"),
+        promptTemplateSchema.refine((value) => value.template_type === "execution", {
+          path: ["template_type"],
+          message: "template_type must be execution",
+        }),
+        executionTemplateSections,
+      );
 
-  const assumptions = parseAssumptions(
-    await readFileOrEmpty(path.join(rootDir, "ASSUMPTIONS.md")),
-  );
-  const glossaryTerms = parseGlossary(
-    await readFileOrEmpty(path.join(rootDir, "GLOSSARY.md")),
-  );
-  const openQuestions = extractBulletItems(
-    await readFileOrEmpty(path.join(rootDir, "PLAN.md")),
-    "18. Open Questions That Genuinely Need Answering",
-  );
-  const globalErrors = [
-    ...findDuplicateIds(
-      "decision",
-      decisions
-        .map((record) => record.frontmatter?.id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-    ...findDuplicateIds(
-      "tranche",
-      tranches
-        .map((record) => record.frontmatter?.id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-    ...findDuplicateIds(
-      "review",
-      reviews
-        .map((record) => record.frontmatter?.id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-    ...findDuplicateIds(
-      "proposal set",
-      proposalSets
-        .map((record) => record.frontmatter?.id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-    ...findDuplicateIds(
-      "proposal draft",
-      proposalDrafts
-        .map((record) => record.frontmatter?.id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-    ...findProposalIntegrityErrors({
-      proposalSets,
-      proposalDrafts,
-      reviews,
-    }),
-    ...findHandoffAlignmentErrors({
-      tranches,
-      decisions,
-      planPackages,
-      executionPackages,
-      assumptions,
-      glossaryTerms,
-    }),
-  ];
-  const traceLinks = buildTraceLinks({
-    decisions,
-    proposalSets,
-    proposalDrafts,
-    tranches,
-    reviews,
-    planPackages,
-    executionPackages,
-  });
+      const assumptions = parseAssumptions(
+        await readFileOrEmpty(path.join(rootDir, "ASSUMPTIONS.md")),
+      );
+      const glossaryTerms = parseGlossary(
+        await readFileOrEmpty(path.join(rootDir, "GLOSSARY.md")),
+      );
+      const openQuestions = extractBulletItems(
+        await readFileOrEmpty(path.join(rootDir, "PLAN.md")),
+        "18. Open Questions That Genuinely Need Answering",
+      );
+      const globalErrors = [
+        ...findDuplicateIds(
+          "decision",
+          decisions
+            .map((record) => record.frontmatter?.id)
+            .filter((value): value is string => Boolean(value)),
+        ),
+        ...findDuplicateIds(
+          "tranche",
+          tranches
+            .map((record) => record.frontmatter?.id)
+            .filter((value): value is string => Boolean(value)),
+        ),
+        ...findDuplicateIds(
+          "review",
+          reviews
+            .map((record) => record.frontmatter?.id)
+            .filter((value): value is string => Boolean(value)),
+        ),
+        ...findDuplicateIds(
+          "proposal set",
+          proposalSets
+            .map((record) => record.frontmatter?.id)
+            .filter((value): value is string => Boolean(value)),
+        ),
+        ...findDuplicateIds(
+          "proposal draft",
+          proposalDrafts
+            .map((record) => record.frontmatter?.id)
+            .filter((value): value is string => Boolean(value)),
+        ),
+        ...findProposalIntegrityErrors({
+          proposalSets,
+          proposalDrafts,
+          reviews,
+        }),
+        ...findHandoffAlignmentErrors({
+          tranches,
+          decisions,
+          planPackages,
+          executionPackages,
+          assumptions,
+          glossaryTerms,
+        }),
+      ];
+      const traceLinks = buildTraceLinks({
+        decisions,
+        proposalSets,
+        proposalDrafts,
+        tranches,
+        reviews,
+        planPackages,
+        executionPackages,
+      });
 
-  return {
-    rootFiles,
-    directories,
-    decisions,
-    proposalSets,
-    proposalDrafts,
-    tranches,
-    reviews,
-    planPackages,
-    executionPackages,
-    planTemplate,
-    executionTemplate,
-    assumptions,
-    glossaryTerms,
-    openQuestions,
-    globalErrors,
-    traceLinks,
-  };
+      return {
+        rootFiles,
+        directories,
+        decisions,
+        proposalSets,
+        proposalDrafts,
+        tranches,
+        reviews,
+        planPackages,
+        executionPackages,
+        planTemplate,
+        executionTemplate,
+        assumptions,
+        glossaryTerms,
+        openQuestions,
+        globalErrors,
+        traceLinks,
+      };
+    },
+    {
+      fields: {
+        root_dir: rootDir,
+      },
+      startLevel: "debug",
+      successLevel: "debug",
+      summarizeResult: (validation) => {
+        const errors = collectValidationErrors(validation);
+
+        if (errors.length > 0) {
+          logger.warn("repository validation found issues", {
+            error_count: errors.length,
+            errors,
+            root_dir: rootDir,
+          });
+        }
+
+        return {
+          decision_count: validation.decisions.length,
+          execution_package_count: validation.executionPackages.length,
+          global_error_count: validation.globalErrors.length,
+          glossary_term_count: validation.glossaryTerms.length,
+          open_question_count: validation.openQuestions.length,
+          plan_package_count: validation.planPackages.length,
+          proposal_draft_count: validation.proposalDrafts.length,
+          proposal_set_count: validation.proposalSets.length,
+          review_count: validation.reviews.length,
+          trace_link_count: validation.traceLinks.length,
+          tranche_count: validation.tranches.length,
+          validation_error_count: errors.length,
+        };
+      },
+    },
+  );
 }
 
 export async function loadTranche(

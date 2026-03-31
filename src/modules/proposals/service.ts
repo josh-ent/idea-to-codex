@@ -3,6 +3,7 @@ import path from "node:path";
 
 import matter from "gray-matter";
 
+import { createLogger, logOperation } from "../../runtime/logging.js";
 import {
   extractBulletItems,
   extractMarkdownCodeFence,
@@ -41,6 +42,8 @@ import {
 } from "./builders.js";
 import { deriveProposalSetStatus } from "./status.js";
 
+const logger = createLogger("proposals");
+
 export interface ProposalDraftDetail {
   id: string;
   relativePath: string;
@@ -77,57 +80,91 @@ export interface ProposalMutationResult {
 }
 
 export async function listProposalSets(rootDir: string): Promise<ProposalSetSummary[]> {
-  const [proposalSets, proposalDrafts] = await Promise.all([
-    loadProposalSetRecords(rootDir),
-    loadProposalDraftRecords(rootDir),
-  ]);
+  return logOperation(
+    logger,
+    "list proposal sets",
+    async () => {
+      const [proposalSets, proposalDrafts] = await Promise.all([
+        loadProposalSetRecords(rootDir),
+        loadProposalDraftRecords(rootDir),
+      ]);
 
-  return proposalSets
-    .filter((record) => record.frontmatter && record.errors.length === 0)
-    .map((record) => ({
-      id: record.frontmatter!.id,
-      relativePath: record.path,
-      record: record.frontmatter!,
-      draft_count: proposalDrafts.filter(
-        (draft) =>
-          draft.frontmatter?.proposal_set_id === record.frontmatter!.id &&
-          draft.errors.length === 0,
-      ).length,
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+      return proposalSets
+        .filter((record) => record.frontmatter && record.errors.length === 0)
+        .map((record) => ({
+          id: record.frontmatter!.id,
+          relativePath: record.path,
+          record: record.frontmatter!,
+          draft_count: proposalDrafts.filter(
+            (draft) =>
+              draft.frontmatter?.proposal_set_id === record.frontmatter!.id &&
+              draft.errors.length === 0,
+          ).length,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id));
+    },
+    {
+      fields: {
+        root_dir: rootDir,
+      },
+      startLevel: "debug",
+      successLevel: "debug",
+      summarizeResult: (proposalSets) => ({
+        proposal_set_count: proposalSets.length,
+      }),
+    },
+  );
 }
 
 export async function getProposalSet(
   rootDir: string,
   proposalSetId: string,
 ): Promise<ProposalSetDetail> {
-  const [proposalSets, proposalDrafts] = await Promise.all([
-    loadProposalSetRecords(rootDir),
-    loadProposalDraftRecords(rootDir),
-  ]);
-  const proposalSet = requireValidRecord(
-    proposalSets.find((record) => record.frontmatter?.id === proposalSetId),
-    `Unknown proposal set: ${proposalSetId}`,
-  );
-  const drafts = proposalDrafts
-    .filter(
-      (record) =>
-        record.frontmatter?.proposal_set_id === proposalSetId &&
-        record.errors.length === 0,
-    )
-    .map((record) => toProposalDraftDetail(record))
-    .sort((left, right) => left.id.localeCompare(right.id));
+  return logOperation(
+    logger,
+    "get proposal set",
+    async () => {
+      const [proposalSets, proposalDrafts] = await Promise.all([
+        loadProposalSetRecords(rootDir),
+        loadProposalDraftRecords(rootDir),
+      ]);
+      const proposalSet = requireValidRecord(
+        proposalSets.find((record) => record.frontmatter?.id === proposalSetId),
+        `Unknown proposal set: ${proposalSetId}`,
+      );
+      const drafts = proposalDrafts
+        .filter(
+          (record) =>
+            record.frontmatter?.proposal_set_id === proposalSetId &&
+            record.errors.length === 0,
+        )
+        .map((record) => toProposalDraftDetail(record))
+        .sort((left, right) => left.id.localeCompare(right.id));
 
-  return {
-    id: proposalSet.frontmatter.id,
-    relativePath: proposalSet.path,
-    record: proposalSet.frontmatter,
-    summary: sectionContent(proposalSet.content, "Summary"),
-    sourceContext: sectionContent(proposalSet.content, "Source Context"),
-    draftsSection: sectionContent(proposalSet.content, "Drafts"),
-    drafts,
-    content: proposalSet.content,
-  };
+      return {
+        id: proposalSet.frontmatter.id,
+        relativePath: proposalSet.path,
+        record: proposalSet.frontmatter,
+        summary: sectionContent(proposalSet.content, "Summary"),
+        sourceContext: sectionContent(proposalSet.content, "Source Context"),
+        draftsSection: sectionContent(proposalSet.content, "Drafts"),
+        drafts,
+        content: proposalSet.content,
+      };
+    },
+    {
+      fields: {
+        proposal_set_id: proposalSetId,
+        root_dir: rootDir,
+      },
+      startLevel: "debug",
+      successLevel: "debug",
+      summarizeResult: (proposalSet) => ({
+        draft_count: proposalSet.drafts.length,
+        status: proposalSet.record.status,
+      }),
+    },
+  );
 }
 
 export async function generateIntakeProposalSet(
@@ -135,447 +172,485 @@ export async function generateIntakeProposalSet(
   requestText: string,
   answers: Record<string, string>,
 ): Promise<ProposalSetDetail> {
-  const validation = await requireCleanRepository(rootDir);
-  const analysis = analyzeRequest(requestText);
-  const unanswered = analysis.material_questions.filter(
-    (question) => question.blocking && !answers[question.id]?.trim(),
-  );
+  return logOperation(
+    logger,
+    "generate intake proposal set",
+    async () => {
+      const validation = await requireCleanRepository(rootDir);
+      const analysis = analyzeRequest(requestText);
+      const unanswered = analysis.material_questions.filter(
+        (question) => question.blocking && !answers[question.id]?.trim(),
+      );
 
-  if (unanswered.length > 0) {
-    throw new Error(
-      `Unanswered blocking material questions: ${unanswered
-        .map((question) => question.id)
-        .join(", ")}`,
-    );
-  }
+      if (unanswered.length > 0) {
+        throw new Error(
+          `Unanswered blocking material questions: ${unanswered
+            .map((question) => question.id)
+            .join(", ")}`,
+        );
+      }
 
-  const setId = nextIdentifier(
-    validation.proposalSets
-      .map((record) => record.frontmatter?.id)
-      .filter((value): value is string => Boolean(value)),
-    "PROPOSAL",
-  );
-  const sourceRef = `INTAKE-${setId}`;
-  const trancheId = nextIdentifier(
-    validation.tranches
-      .map((record) => record.frontmatter?.id)
-      .filter((value): value is string => Boolean(value)),
-    "TRANCHE",
-  );
-  const decisionNeeded = analysis.material_questions.some(
-    (question) => question.type === "architecture_direction",
-  );
-  const workflowContext = deriveWorkflowContext(analysis, answers);
-  const glossaryTerms = deduplicateGlossaryTerms([
-    ...(analysis.material_questions.some(
-      (question) => question.type === "terminology_integrity",
-    )
-      ? deriveGlossaryTerms(requestText, answers)
-      : []),
-    ...deriveWorkflowGlossaryTerms(
-      validation.glossaryTerms.map((term) => term.term),
-      workflowContext,
-    ),
-  ]);
-  const assumptionEntries = deriveAssumptions(
-    analysis.summary,
-    analysis.draft_assumptions,
-    analysis.material_questions,
-    answers,
-  );
-  const nextAssumptionIds = assignSequentialIds(
-    validation.assumptions.map((assumption) => assumption.id),
-    "A",
-    assumptionEntries.length,
-  );
-  const assumptions = assumptionEntries.map((text, index) => ({
-    id: nextAssumptionIds[index],
-    text,
-  }));
-  const decisionId = decisionNeeded
-    ? nextIdentifier(
-        validation.decisions
+      const setId = nextIdentifier(
+        validation.proposalSets
           .map((record) => record.frontmatter?.id)
           .filter((value): value is string => Boolean(value)),
-        "DEC",
-      )
-    : null;
-  const trancheTitle = analysis.recommended_tranche_title;
-  const trancheSlug = slugify(trancheTitle);
-  const tranchePath = `docs/tranches/${trancheId}-${trancheSlug}.md`;
-  const decisionPath = decisionId
-    ? `docs/decisions/${decisionId}-${slugify(`boundary for ${trancheTitle}`)}.md`
-    : null;
+        "PROPOSAL",
+      );
+      const sourceRef = `INTAKE-${setId}`;
+      const trancheId = nextIdentifier(
+        validation.tranches
+          .map((record) => record.frontmatter?.id)
+          .filter((value): value is string => Boolean(value)),
+        "TRANCHE",
+      );
+      const decisionNeeded = analysis.material_questions.some(
+        (question) => question.type === "architecture_direction",
+      );
+      const workflowContext = deriveWorkflowContext(analysis, answers);
+      const glossaryTerms = deduplicateGlossaryTerms([
+        ...(analysis.material_questions.some(
+          (question) => question.type === "terminology_integrity",
+        )
+          ? deriveGlossaryTerms(requestText, answers)
+          : []),
+        ...deriveWorkflowGlossaryTerms(
+          validation.glossaryTerms.map((term) => term.term),
+          workflowContext,
+        ),
+      ]);
+      const assumptionEntries = deriveAssumptions(
+        analysis.summary,
+        analysis.draft_assumptions,
+        analysis.material_questions,
+        answers,
+      );
+      const nextAssumptionIds = assignSequentialIds(
+        validation.assumptions.map((assumption) => assumption.id),
+        "A",
+        assumptionEntries.length,
+      );
+      const assumptions = assumptionEntries.map((text, index) => ({
+        id: nextAssumptionIds[index],
+        text,
+      }));
+      const decisionId = decisionNeeded
+        ? nextIdentifier(
+            validation.decisions
+              .map((record) => record.frontmatter?.id)
+              .filter((value): value is string => Boolean(value)),
+            "DEC",
+          )
+        : null;
+      const trancheTitle = analysis.recommended_tranche_title;
+      const trancheSlug = slugify(trancheTitle);
+      const tranchePath = `docs/tranches/${trancheId}-${trancheSlug}.md`;
+      const decisionPath = decisionId
+        ? `docs/decisions/${decisionId}-${slugify(`boundary for ${trancheTitle}`)}.md`
+        : null;
 
-  const draftInputs: ProposalDraftInput[] = [
-    {
-      fileName: "backlog.md",
-      frontmatter: buildDraftFrontmatter({
-        setId,
+      const draftInputs: ProposalDraftInput[] = [
+        {
+          fileName: "backlog.md",
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "intake",
+            sourceRef,
+            suffix: "BACKLOG",
+            targetArtifact: "BACKLOG.md",
+            targetKind: "top_level",
+          }),
+          summary: `Add ${trancheId} to the backlog so the intake request becomes a durable tranche candidate.`,
+          sourceContext: [
+            `- Intake summary: ${analysis.summary}`,
+            `- Recommended tranche title: ${trancheTitle}`,
+          ],
+          proposedContent: buildBacklogProposal(
+            await readText(rootDir, "BACKLOG.md"),
+            trancheId,
+            trancheTitle,
+          ),
+        },
+        {
+          fileName: `tranche-${trancheId.toLowerCase()}.md`,
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "intake",
+            sourceRef,
+            suffix: trancheId,
+            targetArtifact: tranchePath,
+            targetKind: "record",
+          }),
+          summary: `Create ${trancheId} as the durable tranche record for the approved intake request.`,
+          sourceContext: [
+            `- Intake summary: ${analysis.summary}`,
+            ...formatAnswerLines(answers),
+          ],
+          proposedContent: buildTrancheRecord({
+            id: trancheId,
+            title: trancheTitle,
+            status: "proposed",
+            priority: "high",
+            goal: analysis.summary,
+            affectedArtifacts: unique([
+              "BACKLOG.md",
+              ...(assumptions.length > 0 ? ["ASSUMPTIONS.md"] : []),
+              ...(glossaryTerms.length > 0 ? ["GLOSSARY.md"] : []),
+              ...(decisionPath ? [decisionPath] : []),
+              tranchePath,
+            ]),
+            affectedModules:
+              analysis.affected_modules.length > 0 ? analysis.affected_modules : ["intake"],
+            relatedDecisions: decisionId ? [decisionId] : [],
+            relatedAssumptions: assumptions.map((assumption) => assumption.id),
+            relatedTerms: unique([
+              ...(workflowContext ? ["Actor", "Use Case"] : []),
+            ]),
+            actor: workflowContext?.actor,
+            useCase: workflowContext?.use_case,
+            actorGoal: workflowContext?.actor_goal,
+            useCaseConstraints: workflowContext?.use_case_constraints,
+            reviewTrigger: "tranche_complete",
+            acceptanceStatus: "not_started",
+            scope: [
+              "Capture the approved intake request as durable repository truth.",
+              "Prepare the tranche for plan and execution package generation.",
+            ],
+            outOfScope: [
+              "Automatic persistence of meaning-bearing artefacts without approval.",
+              "Direct Codex execution from the platform.",
+            ],
+            preconditions: [
+              "Blocking Material Questions for this request have explicit operator answers.",
+              "Repository validation remains clean before approval.",
+            ],
+            acceptanceCriteria: [
+              "The request is represented by a durable tranche record.",
+              "Affected artefacts and modules are explicit enough for package generation.",
+            ],
+            risks: [
+              "Approving the tranche before sibling glossary or decision drafts may leave temporary drift.",
+            ],
+            notes: [
+              "Generated from intake analysis and operator-provided answers.",
+            ],
+          }),
+        },
+      ];
+
+      if (assumptions.length > 0) {
+        draftInputs.push({
+          fileName: "assumptions.md",
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "intake",
+            sourceRef,
+            suffix: "ASSUMPTIONS",
+            targetArtifact: "ASSUMPTIONS.md",
+            targetKind: "top_level",
+          }),
+          summary: `Add ${assumptions.length} active assumption(s) needed to preserve the approved intake context.`,
+          sourceContext: [
+            `- Intake summary: ${analysis.summary}`,
+            ...formatAnswerLines(answers),
+          ],
+          proposedContent: buildAssumptionsProposal(
+            await readText(rootDir, "ASSUMPTIONS.md"),
+            assumptions,
+          ),
+        });
+      }
+
+      if (glossaryTerms.length > 0) {
+        draftInputs.push({
+          fileName: "glossary.md",
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "intake",
+            sourceRef,
+            suffix: "GLOSSARY",
+            targetArtifact: "GLOSSARY.md",
+            targetKind: "top_level",
+          }),
+          summary: `Add or update ${glossaryTerms.length} glossary term(s) before terminology drifts into prompts or UI copy.`,
+          sourceContext: [
+            `- Intake summary: ${analysis.summary}`,
+            ...formatAnswerLines(answers),
+          ],
+          proposedContent: buildGlossaryProposal(
+            await readText(rootDir, "GLOSSARY.md"),
+            glossaryTerms,
+          ),
+        });
+      }
+
+      if (decisionId && decisionPath) {
+        draftInputs.push({
+          fileName: `decision-${decisionId.toLowerCase()}.md`,
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "intake",
+            sourceRef,
+            suffix: decisionId,
+            targetArtifact: decisionPath,
+            targetKind: "record",
+          }),
+          summary: `Capture the architecture boundary change as ${decisionId} before implementation spreads implicit ownership assumptions.`,
+          sourceContext: [
+            `- Intake summary: ${analysis.summary}`,
+            ...formatAnswerLines(answers),
+          ],
+          proposedContent: buildDecisionRecord({
+            id: decisionId,
+            title: `Boundary for ${trancheTitle}`,
+            status: "proposed",
+            date: today(),
+            owners: ["project-lead"],
+            relatedTranches: [trancheId],
+            affectedArtifacts: unique(["ARCHITECTURE.md", "PLAN.md", tranchePath]),
+            supersedes: [],
+            tags: ["architecture", "proposal"],
+            context: [
+              "The intake request affects architecture direction and needs an explicit boundary decision.",
+              `Request summary: ${analysis.summary}`,
+            ],
+            decision: [
+              `Use ${analysis.affected_modules.join(", ") || "the current modules"} as the initial ownership boundary for ${trancheTitle}.`,
+              "Keep durable truth writes backend-owned and approval-gated.",
+            ],
+            options: [
+              "Proceed without a decision record and let the implementation imply the boundary.",
+              "Capture the boundary explicitly before execution work starts.",
+            ],
+            consequences: [
+              "Codex handoff packaging can reference a durable architecture choice.",
+              "The operator can approve or reject the boundary change independently.",
+            ],
+            followUp: [
+              "Approve the linked tranche and glossary proposals in the same change set if they remain coherent.",
+            ],
+          }),
+        });
+      }
+
+      return writeProposalSet(rootDir, {
+        id: setId,
         sourceType: "intake",
         sourceRef,
-        suffix: "BACKLOG",
-        targetArtifact: "BACKLOG.md",
-        targetKind: "top_level",
-      }),
-      summary: `Add ${trancheId} to the backlog so the intake request becomes a durable tranche candidate.`,
-      sourceContext: [
-        `- Intake summary: ${analysis.summary}`,
-        `- Recommended tranche title: ${trancheTitle}`,
-      ],
-      proposedContent: buildBacklogProposal(
-        await readText(rootDir, "BACKLOG.md"),
-        trancheId,
-        trancheTitle,
-      ),
+        summary: `Draft proposals generated from intake request: ${analysis.summary}`,
+        sourceContext: [
+          `- Raw request: ${requestText.trim() || "No request provided."}`,
+          ...formatAnswerLines(answers),
+        ],
+        drafts: draftInputs,
+      });
     },
     {
-      fileName: `tranche-${trancheId.toLowerCase()}.md`,
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "intake",
-        sourceRef,
-        suffix: trancheId,
-        targetArtifact: tranchePath,
-        targetKind: "record",
-      }),
-      summary: `Create ${trancheId} as the durable tranche record for the approved intake request.`,
-      sourceContext: [
-        `- Intake summary: ${analysis.summary}`,
-        ...formatAnswerLines(answers),
-      ],
-      proposedContent: buildTrancheRecord({
-        id: trancheId,
-        title: trancheTitle,
-        status: "proposed",
-        priority: "high",
-        goal: analysis.summary,
-        affectedArtifacts: unique([
-          "BACKLOG.md",
-          ...(assumptions.length > 0 ? ["ASSUMPTIONS.md"] : []),
-          ...(glossaryTerms.length > 0 ? ["GLOSSARY.md"] : []),
-          ...(decisionPath ? [decisionPath] : []),
-          tranchePath,
-        ]),
-        affectedModules: analysis.affected_modules.length > 0 ? analysis.affected_modules : ["intake"],
-        relatedDecisions: decisionId ? [decisionId] : [],
-        relatedAssumptions: assumptions.map((assumption) => assumption.id),
-        relatedTerms: unique([
-          ...(workflowContext ? ["Actor", "Use Case"] : []),
-        ]),
-        actor: workflowContext?.actor,
-        useCase: workflowContext?.use_case,
-        actorGoal: workflowContext?.actor_goal,
-        useCaseConstraints: workflowContext?.use_case_constraints,
-        reviewTrigger: "tranche_complete",
-        acceptanceStatus: "not_started",
-        scope: [
-          "Capture the approved intake request as durable repository truth.",
-          "Prepare the tranche for plan and execution package generation.",
-        ],
-        outOfScope: [
-          "Automatic persistence of meaning-bearing artefacts without approval.",
-          "Direct Codex execution from the platform.",
-        ],
-        preconditions: [
-          "Blocking Material Questions for this request have explicit operator answers.",
-          "Repository validation remains clean before approval.",
-        ],
-        acceptanceCriteria: [
-          "The request is represented by a durable tranche record.",
-          "Affected artefacts and modules are explicit enough for package generation.",
-        ],
-        risks: [
-          "Approving the tranche before sibling glossary or decision drafts may leave temporary drift.",
-        ],
-        notes: [
-          "Generated from intake analysis and operator-provided answers.",
-        ],
+      fields: {
+        answer_count: Object.keys(answers).length,
+        request_length: requestText.trim().length,
+        root_dir: rootDir,
+      },
+      summarizeResult: (proposalSet) => ({
+        draft_count: proposalSet.drafts.length,
+        proposal_set_id: proposalSet.id,
+        source_type: proposalSet.record.source_type,
+        target_artifacts: proposalSet.drafts.map((draft) => draft.record.target_artifact),
       }),
     },
-  ];
-
-  if (assumptions.length > 0) {
-    draftInputs.push({
-      fileName: "assumptions.md",
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "intake",
-        sourceRef,
-        suffix: "ASSUMPTIONS",
-        targetArtifact: "ASSUMPTIONS.md",
-        targetKind: "top_level",
-      }),
-      summary: `Add ${assumptions.length} active assumption(s) needed to preserve the approved intake context.`,
-      sourceContext: [
-        `- Intake summary: ${analysis.summary}`,
-        ...formatAnswerLines(answers),
-      ],
-      proposedContent: buildAssumptionsProposal(
-        await readText(rootDir, "ASSUMPTIONS.md"),
-        assumptions,
-      ),
-    });
-  }
-
-  if (glossaryTerms.length > 0) {
-    draftInputs.push({
-      fileName: "glossary.md",
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "intake",
-        sourceRef,
-        suffix: "GLOSSARY",
-        targetArtifact: "GLOSSARY.md",
-        targetKind: "top_level",
-      }),
-      summary: `Add or update ${glossaryTerms.length} glossary term(s) before terminology drifts into prompts or UI copy.`,
-      sourceContext: [
-        `- Intake summary: ${analysis.summary}`,
-        ...formatAnswerLines(answers),
-      ],
-      proposedContent: buildGlossaryProposal(
-        await readText(rootDir, "GLOSSARY.md"),
-        glossaryTerms,
-      ),
-    });
-  }
-
-  if (decisionId && decisionPath) {
-    draftInputs.push({
-      fileName: `decision-${decisionId.toLowerCase()}.md`,
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "intake",
-        sourceRef,
-        suffix: decisionId,
-        targetArtifact: decisionPath,
-        targetKind: "record",
-      }),
-      summary: `Capture the architecture boundary change as ${decisionId} before implementation spreads implicit ownership assumptions.`,
-      sourceContext: [
-        `- Intake summary: ${analysis.summary}`,
-        ...formatAnswerLines(answers),
-      ],
-      proposedContent: buildDecisionRecord({
-        id: decisionId,
-        title: `Boundary for ${trancheTitle}`,
-        status: "proposed",
-        date: today(),
-        owners: ["project-lead"],
-        relatedTranches: [trancheId],
-        affectedArtifacts: unique(["ARCHITECTURE.md", "PLAN.md", tranchePath]),
-        supersedes: [],
-        tags: ["architecture", "proposal"],
-        context: [
-          "The intake request affects architecture direction and needs an explicit boundary decision.",
-          `Request summary: ${analysis.summary}`,
-        ],
-        decision: [
-          `Use ${analysis.affected_modules.join(", ") || "the current modules"} as the initial ownership boundary for ${trancheTitle}.`,
-          "Keep durable truth writes backend-owned and approval-gated.",
-        ],
-        options: [
-          "Proceed without a decision record and let the implementation imply the boundary.",
-          "Capture the boundary explicitly before execution work starts.",
-        ],
-        consequences: [
-          "Codex handoff packaging can reference a durable architecture choice.",
-          "The operator can approve or reject the boundary change independently.",
-        ],
-        followUp: [
-          "Approve the linked tranche and glossary proposals in the same change set if they remain coherent.",
-        ],
-      }),
-    });
-  }
-
-  return writeProposalSet(rootDir, {
-    id: setId,
-    sourceType: "intake",
-    sourceRef,
-    summary: `Draft proposals generated from intake request: ${analysis.summary}`,
-    sourceContext: [
-      `- Raw request: ${requestText.trim() || "No request provided."}`,
-      ...formatAnswerLines(answers),
-    ],
-    drafts: draftInputs,
-  });
+  );
 }
 
 export async function generateReviewProposalSet(
   rootDir: string,
   trancheId: string,
 ): Promise<ProposalSetDetail> {
-  const validation = await requireCleanRepository(rootDir);
-  const trancheRecord = await loadTranche(rootDir, trancheId);
-  const tranche = trancheRecord.frontmatter!;
-  const review = await generateReview(rootDir, trancheId, false);
-  const setId = nextIdentifier(
-    validation.proposalSets
-      .map((record) => record.frontmatter?.id)
-      .filter((value): value is string => Boolean(value)),
-    "PROPOSAL",
+  return logOperation(
+    logger,
+    "generate review proposal set",
+    async () => {
+      const validation = await requireCleanRepository(rootDir);
+      const trancheRecord = await loadTranche(rootDir, trancheId);
+      const tranche = trancheRecord.frontmatter!;
+      const review = await generateReview(rootDir, trancheId, false);
+      const setId = nextIdentifier(
+        validation.proposalSets
+          .map((record) => record.frontmatter?.id)
+          .filter((value): value is string => Boolean(value)),
+        "PROPOSAL",
+      );
+      const sourceRef = review.record.id;
+      const glossaryIndex = new Set(validation.glossaryTerms.map((term) => term.term));
+      const missingTerms = tranche.related_terms.filter((term) => !glossaryIndex.has(term));
+      const nextDecisionId = nextIdentifier(
+        validation.decisions
+          .map((record) => record.frontmatter?.id)
+          .filter((value): value is string => Boolean(value)),
+        "DEC",
+      );
+      const decisionPath = `docs/decisions/${nextDecisionId}-${slugify(`follow up for ${tranche.id}`)}.md`;
+      const draftInputs: ProposalDraftInput[] = [];
+
+      if (missingTerms.length > 0) {
+        draftInputs.push({
+          fileName: "glossary.md",
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "review",
+            sourceRef,
+            suffix: "GLOSSARY",
+            targetArtifact: "GLOSSARY.md",
+            targetKind: "top_level",
+          }),
+          summary: `Add ${missingTerms.length} missing glossary term(s) surfaced by ${review.record.id}.`,
+          sourceContext: [
+            `- Review source: ${review.record.id}`,
+            ...extractBulletItems(review.content, "Findings").map((item) => `- ${item}`),
+          ],
+          proposedContent: buildGlossaryProposal(
+            await readText(rootDir, "GLOSSARY.md"),
+            missingTerms.map((term) => ({
+              term,
+              definition: `Glossary term referenced by ${tranche.id} and surfaced during review.`,
+              notes: `Added from ${review.record.id} to remove terminology drift.`,
+            })),
+          ),
+        });
+      }
+
+      if (
+        tranche.affected_artifacts.includes("ARCHITECTURE.md") &&
+        tranche.related_decisions.length === 0
+      ) {
+        draftInputs.push({
+          fileName: `decision-${nextDecisionId.toLowerCase()}.md`,
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "review",
+            sourceRef,
+            suffix: nextDecisionId,
+            targetArtifact: decisionPath,
+            targetKind: "record",
+          }),
+          summary: `Create ${nextDecisionId} to explain the architecture boundary drift surfaced by ${review.record.id}.`,
+          sourceContext: [
+            `- Review source: ${review.record.id}`,
+            ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
+          ],
+          proposedContent: buildDecisionRecord({
+            id: nextDecisionId,
+            title: `Architecture follow-up for ${tranche.id}`,
+            status: "proposed",
+            date: today(),
+            owners: ["project-lead"],
+            relatedTranches: [tranche.id],
+            affectedArtifacts: unique(["ARCHITECTURE.md", toRootRelativePath(rootDir, trancheRecord.path)]),
+            supersedes: [],
+            tags: ["architecture", "review"],
+            context: [
+              `Review ${review.record.id} found that ${tranche.id} affects ARCHITECTURE.md without a linked decision.`,
+            ],
+            decision: [
+              `Capture the intended architecture boundary for ${tranche.id} before more implementation proceeds.`,
+            ],
+            options: [
+              "Continue without a linked decision.",
+              "Persist the boundary decision and link it to the tranche.",
+            ],
+            consequences: [
+              "Architecture intent becomes explicit again.",
+              "Future package generation can reference a durable decision record.",
+            ],
+            followUp: [
+              `Link ${tranche.id} to ${nextDecisionId} if the proposal is approved.`,
+            ],
+          }),
+        });
+      }
+
+      if (
+        !validation.executionPackages.some(
+          (record) =>
+            record.frontmatter?.source_tranche === tranche.id && record.errors.length === 0,
+        ) &&
+        (tranche.status === "approved" || tranche.status === "in_progress")
+      ) {
+        draftInputs.push({
+          fileName: `tranche-${tranche.id.toLowerCase()}.md`,
+          frontmatter: buildDraftFrontmatter({
+            setId,
+            sourceType: "review",
+            sourceRef,
+            suffix: tranche.id,
+            targetArtifact: toRootRelativePath(rootDir, trancheRecord.path),
+            targetKind: "record",
+          }),
+          summary: `Lower ${tranche.id} back to proposed until its execution package exists.`,
+          sourceContext: [
+            `- Review source: ${review.record.id}`,
+            ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
+          ],
+          proposedContent: buildTrancheRecord({
+            id: tranche.id,
+            title: tranche.title,
+            status: "proposed",
+            priority: tranche.priority,
+            goal: tranche.goal,
+            affectedArtifacts: tranche.affected_artifacts,
+            affectedModules: tranche.affected_modules,
+            relatedDecisions: tranche.related_decisions,
+            relatedAssumptions: tranche.related_assumptions,
+            relatedTerms: tranche.related_terms,
+            actor: tranche.actor,
+            useCase: tranche.use_case,
+            actorGoal: tranche.actor_goal,
+            useCaseConstraints: tranche.use_case_constraints,
+            reviewTrigger: tranche.review_trigger,
+            acceptanceStatus: "pending",
+            scope: bulletLines(trancheRecord.content, "Scope"),
+            outOfScope: bulletLines(trancheRecord.content, "Out of scope"),
+            preconditions: bulletLines(trancheRecord.content, "Preconditions"),
+            acceptanceCriteria: bulletLines(trancheRecord.content, "Acceptance criteria"),
+            risks: unique([
+              ...bulletLines(trancheRecord.content, "Risks / tensions"),
+              `Review ${review.record.id} found no execution package for the current tranche state.`,
+            ]),
+            notes: unique([
+              ...bulletLines(trancheRecord.content, "Notes"),
+              `Proposed from ${review.record.id} to keep tranche status aligned with package coverage.`,
+            ]),
+          }),
+        });
+      }
+
+      if (draftInputs.length === 0) {
+        throw new Error(`No supported proposal drafts were derived from ${review.record.id}`);
+      }
+
+      return writeProposalSet(rootDir, {
+        id: setId,
+        sourceType: "review",
+        sourceRef,
+        summary: `Draft proposals generated from ${review.record.id}.`,
+        sourceContext: [
+          ...extractBulletItems(review.content, "Findings").map((item) => `- ${item}`),
+          ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
+        ],
+        drafts: draftInputs,
+      });
+    },
+    {
+      fields: {
+        root_dir: rootDir,
+        tranche_id: trancheId,
+      },
+      summarizeResult: (proposalSet) => ({
+        draft_count: proposalSet.drafts.length,
+        proposal_set_id: proposalSet.id,
+        source_type: proposalSet.record.source_type,
+        target_artifacts: proposalSet.drafts.map((draft) => draft.record.target_artifact),
+      }),
+    },
   );
-  const sourceRef = review.record.id;
-  const glossaryIndex = new Set(validation.glossaryTerms.map((term) => term.term));
-  const missingTerms = tranche.related_terms.filter((term) => !glossaryIndex.has(term));
-  const nextDecisionId = nextIdentifier(
-    validation.decisions
-      .map((record) => record.frontmatter?.id)
-      .filter((value): value is string => Boolean(value)),
-    "DEC",
-  );
-  const decisionPath = `docs/decisions/${nextDecisionId}-${slugify(`follow up for ${tranche.id}`)}.md`;
-  const draftInputs: ProposalDraftInput[] = [];
-
-  if (missingTerms.length > 0) {
-    draftInputs.push({
-      fileName: "glossary.md",
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "review",
-        sourceRef,
-        suffix: "GLOSSARY",
-        targetArtifact: "GLOSSARY.md",
-        targetKind: "top_level",
-      }),
-      summary: `Add ${missingTerms.length} missing glossary term(s) surfaced by ${review.record.id}.`,
-      sourceContext: [
-        `- Review source: ${review.record.id}`,
-        ...extractBulletItems(review.content, "Findings").map((item) => `- ${item}`),
-      ],
-      proposedContent: buildGlossaryProposal(
-        await readText(rootDir, "GLOSSARY.md"),
-        missingTerms.map((term) => ({
-          term,
-          definition: `Glossary term referenced by ${tranche.id} and surfaced during review.`,
-          notes: `Added from ${review.record.id} to remove terminology drift.`,
-        })),
-      ),
-    });
-  }
-
-  if (
-    tranche.affected_artifacts.includes("ARCHITECTURE.md") &&
-    tranche.related_decisions.length === 0
-  ) {
-    draftInputs.push({
-      fileName: `decision-${nextDecisionId.toLowerCase()}.md`,
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "review",
-        sourceRef,
-        suffix: nextDecisionId,
-        targetArtifact: decisionPath,
-        targetKind: "record",
-      }),
-      summary: `Create ${nextDecisionId} to explain the architecture boundary drift surfaced by ${review.record.id}.`,
-      sourceContext: [
-        `- Review source: ${review.record.id}`,
-        ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
-      ],
-      proposedContent: buildDecisionRecord({
-        id: nextDecisionId,
-        title: `Architecture follow-up for ${tranche.id}`,
-        status: "proposed",
-        date: today(),
-        owners: ["project-lead"],
-        relatedTranches: [tranche.id],
-        affectedArtifacts: unique(["ARCHITECTURE.md", toRootRelativePath(rootDir, trancheRecord.path)]),
-        supersedes: [],
-        tags: ["architecture", "review"],
-        context: [
-          `Review ${review.record.id} found that ${tranche.id} affects ARCHITECTURE.md without a linked decision.`,
-        ],
-        decision: [
-          `Capture the intended architecture boundary for ${tranche.id} before more implementation proceeds.`,
-        ],
-        options: [
-          "Continue without a linked decision.",
-          "Persist the boundary decision and link it to the tranche.",
-        ],
-        consequences: [
-          "Architecture intent becomes explicit again.",
-          "Future package generation can reference a durable decision record.",
-        ],
-        followUp: [
-          `Link ${tranche.id} to ${nextDecisionId} if the proposal is approved.`,
-        ],
-      }),
-    });
-  }
-
-  if (
-    !validation.executionPackages.some(
-      (record) =>
-        record.frontmatter?.source_tranche === tranche.id && record.errors.length === 0,
-    ) &&
-    (tranche.status === "approved" || tranche.status === "in_progress")
-  ) {
-    draftInputs.push({
-      fileName: `tranche-${tranche.id.toLowerCase()}.md`,
-      frontmatter: buildDraftFrontmatter({
-        setId,
-        sourceType: "review",
-        sourceRef,
-        suffix: tranche.id,
-        targetArtifact: toRootRelativePath(rootDir, trancheRecord.path),
-        targetKind: "record",
-      }),
-      summary: `Lower ${tranche.id} back to proposed until its execution package exists.`,
-      sourceContext: [
-        `- Review source: ${review.record.id}`,
-        ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
-      ],
-      proposedContent: buildTrancheRecord({
-        id: tranche.id,
-        title: tranche.title,
-        status: "proposed",
-        priority: tranche.priority,
-        goal: tranche.goal,
-        affectedArtifacts: tranche.affected_artifacts,
-        affectedModules: tranche.affected_modules,
-        relatedDecisions: tranche.related_decisions,
-        relatedAssumptions: tranche.related_assumptions,
-        relatedTerms: tranche.related_terms,
-        actor: tranche.actor,
-        useCase: tranche.use_case,
-        actorGoal: tranche.actor_goal,
-        useCaseConstraints: tranche.use_case_constraints,
-        reviewTrigger: tranche.review_trigger,
-        acceptanceStatus: "pending",
-        scope: bulletLines(trancheRecord.content, "Scope"),
-        outOfScope: bulletLines(trancheRecord.content, "Out of scope"),
-        preconditions: bulletLines(trancheRecord.content, "Preconditions"),
-        acceptanceCriteria: bulletLines(trancheRecord.content, "Acceptance criteria"),
-        risks: unique([
-          ...bulletLines(trancheRecord.content, "Risks / tensions"),
-          `Review ${review.record.id} found no execution package for the current tranche state.`,
-        ]),
-        notes: unique([
-          ...bulletLines(trancheRecord.content, "Notes"),
-          `Proposed from ${review.record.id} to keep tranche status aligned with package coverage.`,
-        ]),
-      }),
-    });
-  }
-
-  if (draftInputs.length === 0) {
-    throw new Error(`No supported proposal drafts were derived from ${review.record.id}`);
-  }
-
-  return writeProposalSet(rootDir, {
-    id: setId,
-    sourceType: "review",
-    sourceRef,
-    summary: `Draft proposals generated from ${review.record.id}.`,
-    sourceContext: [
-      ...extractBulletItems(review.content, "Findings").map((item) => `- ${item}`),
-      ...extractBulletItems(review.content, "Recommended Actions").map((item) => `- ${item}`),
-    ],
-    drafts: draftInputs,
-  });
 }
 
 export async function approveProposalDraft(
@@ -597,57 +672,80 @@ async function applyProposalMutation(
   proposalId: string,
   nextStatus: "approved" | "rejected",
 ): Promise<ProposalMutationResult> {
-  const draftRecords = await loadProposalDraftRecords(rootDir);
-  const draft = requireValidRecord(
-    draftRecords.find(
-      (record) => record.frontmatter?.id === proposalId,
-    ),
-    `Unknown proposal draft: ${proposalId}`,
-  );
-  const proposalSet = requireValidRecord(
-    (await loadProposalSetRecords(rootDir)).find(
-      (record) => record.frontmatter?.id === draft.frontmatter.proposal_set_id,
-    ),
-    `Unknown proposal set: ${draft.frontmatter.proposal_set_id}`,
-  );
-  const previousDraftStatus = draft.frontmatter.status;
-  const previousProposalSetStatus = proposalSet.frontmatter.status;
-
-  if (nextStatus === "approved") {
-    const proposedContent = extractMarkdownCodeFence(
-      sectionContent(draft.content, "Proposed Content"),
-    );
-    const targetPath = path.join(rootDir, draft.frontmatter.target_artifact);
-    const previousContent = await readOptionalFile(targetPath);
-
-    try {
-      await fs.mkdir(path.dirname(targetPath), { recursive: true });
-      await fs.writeFile(targetPath, proposedContent, "utf8");
-      await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
-      await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
-      await requireCleanRepository(rootDir);
-    } catch (error) {
-      await restoreTargetArtifact(targetPath, previousContent);
-      await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), previousDraftStatus);
-      await writeFrontmatterStatus(
-        resolveRecordPath(rootDir, proposalSet.path),
-        previousProposalSetStatus,
+  return logOperation(
+    logger,
+    `${nextStatus === "approved" ? "approve" : "reject"} proposal draft`,
+    async () => {
+      const draftRecords = await loadProposalDraftRecords(rootDir);
+      const draft = requireValidRecord(
+        draftRecords.find(
+          (record) => record.frontmatter?.id === proposalId,
+        ),
+        `Unknown proposal draft: ${proposalId}`,
       );
-      throw new Error(
-        `approving ${proposalId} would leave the repository invalid: ${error instanceof Error ? error.message : "unknown error"}`,
+      const proposalSet = requireValidRecord(
+        (await loadProposalSetRecords(rootDir)).find(
+          (record) => record.frontmatter?.id === draft.frontmatter.proposal_set_id,
+        ),
+        `Unknown proposal set: ${draft.frontmatter.proposal_set_id}`,
       );
-    }
-  } else {
-    await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
-    await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
-  }
+      const previousDraftStatus = draft.frontmatter.status;
+      const previousProposalSetStatus = proposalSet.frontmatter.status;
 
-  return {
-    proposal_set_id: draft.frontmatter.proposal_set_id,
-    proposal_id: draft.frontmatter.id,
-    status: nextStatus,
-    target_artifact: draft.frontmatter.target_artifact,
-  };
+      if (nextStatus === "approved") {
+        const proposedContent = extractMarkdownCodeFence(
+          sectionContent(draft.content, "Proposed Content"),
+        );
+        const targetPath = path.join(rootDir, draft.frontmatter.target_artifact);
+        const previousContent = await readOptionalFile(targetPath);
+
+        try {
+          await fs.mkdir(path.dirname(targetPath), { recursive: true });
+          await fs.writeFile(targetPath, proposedContent, "utf8");
+          await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
+          await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
+          await requireCleanRepository(rootDir);
+        } catch (error) {
+          logger.warn("proposal approval rollback triggered", {
+            proposal_id: proposalId,
+            proposal_set_id: draft.frontmatter.proposal_set_id,
+            root_dir: rootDir,
+            target_artifact: draft.frontmatter.target_artifact,
+          });
+          await restoreTargetArtifact(targetPath, previousContent);
+          await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), previousDraftStatus);
+          await writeFrontmatterStatus(
+            resolveRecordPath(rootDir, proposalSet.path),
+            previousProposalSetStatus,
+          );
+          throw new Error(
+            `approving ${proposalId} would leave the repository invalid: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+        }
+      } else {
+        await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
+        await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
+      }
+
+      return {
+        proposal_set_id: draft.frontmatter.proposal_set_id,
+        proposal_id: draft.frontmatter.id,
+        status: nextStatus,
+        target_artifact: draft.frontmatter.target_artifact,
+      };
+    },
+    {
+      fields: {
+        proposal_id: proposalId,
+        root_dir: rootDir,
+        status: nextStatus,
+      },
+      summarizeResult: (result) => ({
+        proposal_set_id: result.proposal_set_id,
+        target_artifact: result.target_artifact,
+      }),
+    },
+  );
 }
 
 async function refreshProposalSetStatus(rootDir: string, proposalSetId: string): Promise<void> {
@@ -667,6 +765,11 @@ async function refreshProposalSetStatus(rootDir: string, proposalSetId: string):
   const status = deriveProposalSetStatus(drafts.map((draft) => draft.status));
 
   await writeFrontmatterStatus(resolveRecordPath(rootDir, proposalSet.path), status);
+  logger.debug("refreshed proposal set status", {
+    proposal_set_id: proposalSetId,
+    root_dir: rootDir,
+    status,
+  });
 }
 
 async function writeProposalSet(
@@ -701,6 +804,13 @@ async function writeProposalSet(
     );
   }
 
+  logger.debug("wrote proposal set files", {
+    draft_count: input.drafts.length,
+    proposal_directory: proposalDir,
+    proposal_set_id: input.id,
+    root_dir: rootDir,
+  });
+
   return getProposalSet(rootDir, input.id);
 }
 
@@ -711,6 +821,10 @@ async function requireCleanRepository(rootDir: string) {
   if (errors.length > 0) {
     throw new Error(`repository validation failed:\n${errors.join("\n")}`);
   }
+
+  logger.debug("repository is clean for proposal workflow", {
+    root_dir: rootDir,
+  });
 
   return validation;
 }

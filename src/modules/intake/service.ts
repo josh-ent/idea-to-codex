@@ -1,3 +1,7 @@
+import { createLogger } from "../../runtime/logging.js";
+
+const logger = createLogger("intake");
+
 const analysisRules = [
   {
     type: "workflow_actor",
@@ -146,7 +150,7 @@ export function analyzeRequest(requestText: string): IntakeAnalysis {
   );
   const effectiveRules = matchedRules.length > 0 ? matchedRules : [defaultRule];
 
-  return {
+  const analysis = {
     summary: summarizeRequest(normalized),
     recommended_tranche_title: recommendTrancheTitle(normalized),
     affected_artifacts: unique(
@@ -172,6 +176,17 @@ export function analyzeRequest(requestText: string): IntakeAnalysis {
             "Proceed under the current architecture and glossary unless the request explicitly changes them.",
           ],
   };
+
+  logger.debug("request analyzed", {
+    affected_artifact_count: analysis.affected_artifacts.length,
+    affected_module_count: analysis.affected_modules.length,
+    matched_rule_types: effectiveRules.map((rule) => rule.type),
+    material_question_count: analysis.material_questions.length,
+    request_length: normalized.length,
+    summary: analysis.summary,
+  });
+
+  return analysis;
 }
 
 function summarizeRequest(requestText: string): string {

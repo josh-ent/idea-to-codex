@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { createLogger, logOperation, summarizeError } from "../../runtime/logging.js";
+
 const execFileAsync = promisify(execFile);
+const logger = createLogger("artifacts.git");
 
 export interface RepositoryState {
   available: boolean;
@@ -13,46 +16,84 @@ export interface RepositoryState {
 }
 
 export async function getRepositoryState(rootDir: string): Promise<RepositoryState> {
-  if (!(await isGitRepository(rootDir))) {
-    return {
-      available: false,
-      branch: null,
-      head: null,
-      dirty_paths: [],
-      is_dirty: false,
-      is_main_branch: false,
-    };
-  }
+  return logOperation(
+    logger,
+    "read repository state",
+    async () => {
+      if (!(await isGitRepository(rootDir))) {
+        return {
+          available: false,
+          branch: null,
+          head: null,
+          dirty_paths: [],
+          is_dirty: false,
+          is_main_branch: false,
+        };
+      }
 
-  const [branch, head, dirtyPaths] = await Promise.all([
-    readGitOrNull(rootDir, ["branch", "--show-current"]),
-    readGitOrNull(rootDir, ["rev-parse", "--short", "HEAD"]),
-    readDirtyPaths(rootDir),
-  ]);
+      const [branch, head, dirtyPaths] = await Promise.all([
+        readGitOrNull(rootDir, ["branch", "--show-current"]),
+        readGitOrNull(rootDir, ["rev-parse", "--short", "HEAD"]),
+        readDirtyPaths(rootDir),
+      ]);
 
-  return {
-    available: true,
-    branch,
-    head,
-    dirty_paths: dirtyPaths,
-    is_dirty: dirtyPaths.length > 0,
-    is_main_branch: branch === "main",
-  };
+      return {
+        available: true,
+        branch,
+        head,
+        dirty_paths: dirtyPaths,
+        is_dirty: dirtyPaths.length > 0,
+        is_main_branch: branch === "main",
+      };
+    },
+    {
+      fields: {
+        root_dir: rootDir,
+      },
+      startLevel: "debug",
+      successLevel: "debug",
+      summarizeResult: (repositoryState) => ({
+        available: repositoryState.available,
+        branch: repositoryState.branch,
+        dirty_path_count: repositoryState.dirty_paths.length,
+        head: repositoryState.head,
+        is_dirty: repositoryState.is_dirty,
+        is_main_branch: repositoryState.is_main_branch,
+      }),
+    },
+  );
 }
 
 export async function initializeGitRepository(rootDir: string): Promise<void> {
-  if (!(await isGitRepository(rootDir))) {
-    await runGit(rootDir, ["init", "-b", "main"]);
-  }
+  await logOperation(
+    logger,
+    "initialize git repository",
+    async () => {
+      if (!(await isGitRepository(rootDir))) {
+        await runGit(rootDir, ["init", "-b", "main"]);
+      }
 
-  await ensureGitIdentity(rootDir);
-  await runGit(rootDir, ["add", "."]);
+      await ensureGitIdentity(rootDir);
+      await runGit(rootDir, ["add", "."]);
 
-  const status = await readGitOrNull(rootDir, ["status", "--short"]);
+      const status = await readGitOrNull(rootDir, ["status", "--short"]);
 
-  if (status) {
-    await runGit(rootDir, ["-c", "commit.gpgSign=false", "commit", "-m", "Bootstrap project repository"]);
-  }
+      if (status) {
+        await runGit(rootDir, [
+          "-c",
+          "commit.gpgSign=false",
+          "commit",
+          "-m",
+          "Bootstrap project repository",
+        ]);
+      }
+    },
+    {
+      fields: {
+        root_dir: rootDir,
+      },
+    },
+  );
 }
 
 async function isGitRepository(rootDir: string): Promise<boolean> {
@@ -80,7 +121,12 @@ async function readGitOrNull(rootDir: string, args: string[]): Promise<string | 
     const { stdout } = await execFileAsync("git", ["-C", rootDir, ...args]);
     const value = stdout.trim();
     return value ? value : null;
-  } catch {
+  } catch (error) {
+    logger.trace("git command returned no value", {
+      args,
+      root_dir: rootDir,
+      ...summarizeError(error),
+    });
     return null;
   }
 }
@@ -100,8 +146,17 @@ async function ensureGitIdentity(rootDir: string): Promise<void> {
 
 async function runGit(rootDir: string, args: string[]): Promise<void> {
   try {
+    logger.debug("running git command", {
+      args,
+      root_dir: rootDir,
+    });
     await execFileAsync("git", ["-C", rootDir, ...args]);
   } catch (error) {
+    logger.error("git command failed", {
+      args,
+      root_dir: rootDir,
+      ...summarizeError(error),
+    });
     throw new Error(
       `git command failed in ${rootDir}: ${error instanceof Error ? error.message : "unknown error"}`,
     );
