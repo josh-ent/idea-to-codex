@@ -19,20 +19,20 @@ const summaryItems = computed(() => [
 </script>
 
 <template>
-  <section class="panel workspace-panel">
-    <div class="workspace-section__heading">
+  <section class="panel workspace-section-panel">
+    <div class="section-heading">
       <div>
-        <p class="section-kicker">Repository summary</p>
-        <h3>Compact durable-record view</h3>
-        <p>The workspace home stays focused on access and health. Durable record browsing remains secondary.</p>
+        <p class="section-kicker">Repository truth</p>
+        <h3>Compact summary</h3>
+        <p>Keep only the durable-record counts that help orient the current project.</p>
       </div>
     </div>
 
-    <dl class="workspace-count-grid">
-      <div v-for="item in summaryItems" :key="item.label" class="workspace-count-grid__item">
-        <dt>{{ item.label }}</dt>
-        <dd>{{ item.value }}</dd>
-      </div>
-    </dl>
+    <ul class="workspace-truth-list" role="list">
+      <li v-for="item in summaryItems" :key="item.label">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </li>
+    </ul>
   </section>
 </template>

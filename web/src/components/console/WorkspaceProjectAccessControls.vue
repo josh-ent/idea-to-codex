@@ -5,26 +5,23 @@ import Button from "primevue/button";
 
 import { useConsoleStore } from "../../stores/console";
 
+const props = withDefaults(
+  defineProps<{
+    defaultMode?: "create" | "open";
+    openActionLabel?: string;
+  }>(),
+  {
+    defaultMode: "create",
+    openActionLabel: "Open project",
+  },
+);
+
 const store = useConsoleStore();
-const mode = ref<"create" | "open">(store.hasActiveProject ? "open" : "create");
+const mode = ref<"create" | "open">(props.defaultMode);
 </script>
 
 <template>
-  <section class="panel workspace-panel">
-    <div class="workspace-section__heading">
-      <div>
-        <p class="section-kicker">Project access</p>
-        <h3>{{ store.hasActiveProject ? "Create or open another project" : "Choose a project" }}</h3>
-        <p>
-          {{
-            store.hasActiveProject
-              ? "The active project stays above. Use this area to create a new managed repository or open an existing local project."
-              : "Create a new managed repository or open an existing local project to begin operating on repository truth."
-          }}
-        </p>
-      </div>
-    </div>
-
+  <div class="workspace-access-grid">
     <div class="workspace-segmented-control" role="tablist" aria-label="Project access mode">
       <button
         type="button"
@@ -115,7 +112,7 @@ const mode = ref<"create" | "open">(store.hasActiveProject ? "open" : "create");
 
       <div class="panel-actions">
         <Button
-          :label="store.hasActiveProject ? 'Switch project' : 'Open project'"
+          :label="openActionLabel"
           icon="pi pi-folder-open"
           severity="secondary"
           :loading="store.isOpeningProject"
@@ -123,5 +120,5 @@ const mode = ref<"create" | "open">(store.hasActiveProject ? "open" : "create");
         />
       </div>
     </div>
-  </section>
+  </div>
 </template>

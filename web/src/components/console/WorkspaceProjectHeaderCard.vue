@@ -5,17 +5,16 @@ import Button from "primevue/button";
 
 import { useConsoleStore } from "../../stores/console";
 
+const emit = defineEmits<{
+  manageProjects: [];
+}>();
+
 const store = useConsoleStore();
 
 const project = computed(() => store.activeProject);
 const repository = computed(() => store.repositoryDetails);
 
-const summaryItems = computed(() => [
-  {
-    label: "Project path",
-    value: project.value?.path ?? "No project path available",
-    wide: true,
-  },
+const facts = computed(() => [
   {
     label: "Git repository",
     value: project.value?.is_git_repository ? "Yes" : "No",
@@ -41,49 +40,37 @@ const summaryItems = computed(() => [
     value: String(store.openQuestionCount),
   },
 ]);
-
-function scrollToProjectAccess() {
-  document.getElementById("workspace-project-access")?.scrollIntoView({
-    behavior: "smooth",
-    block: "start",
-  });
-}
 </script>
 
 <template>
-  <section class="panel workspace-panel workspace-panel--primary">
-    <div class="workspace-section__heading">
-      <div>
+  <section class="panel workspace-project-card">
+    <div class="workspace-project-card__header">
+      <div class="workspace-project-card__title">
         <p class="section-kicker">Active project</p>
         <h3>{{ project?.name }}</h3>
-        <p>Inspect current repository truth, refresh state, or switch to another managed project.</p>
+        <p class="workspace-project-card__path">{{ project?.path }}</p>
       </div>
 
       <div class="panel-actions">
         <Button
-          label="Switch project"
+          label="Manage projects"
           icon="pi pi-arrow-right-arrow-left"
           severity="secondary"
-          @click="scrollToProjectAccess"
+          @click="emit('manageProjects')"
         />
         <Button
           label="Refresh"
           icon="pi pi-refresh"
-          :loading="store.isLoading"
-          @click="() => store.loadStatus()"
+          :loading="store.isLoading || store.isLoadingProposals"
+          @click="() => store.refreshWorkspace()"
         />
       </div>
     </div>
 
-    <dl class="workspace-summary-grid">
-      <div
-        v-for="item in summaryItems"
-        :key="item.label"
-        class="workspace-summary-grid__item"
-        :class="{ 'workspace-summary-grid__item--wide': item.wide }"
-      >
-        <dt>{{ item.label }}</dt>
-        <dd>{{ item.value }}</dd>
+    <dl class="workspace-fact-grid">
+      <div v-for="fact in facts" :key="fact.label" class="workspace-fact">
+        <dt>{{ fact.label }}</dt>
+        <dd>{{ fact.value }}</dd>
       </div>
     </dl>
   </section>

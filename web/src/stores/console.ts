@@ -390,6 +390,19 @@ export const useConsoleStore = defineStore("console", () => {
     lastError.value = error instanceof Error ? error.message : fallbackMessage;
   }
 
+  async function refreshWorkspace(options: { clearError?: boolean } = {}) {
+    await loadStatus(options);
+
+    if (status.value?.project.active_project) {
+      await loadProposalQueue({ clearError: false });
+    }
+  }
+
+  async function openKnownProject(path: string) {
+    existingProjectPath.value = path;
+    await openManagedProject();
+  }
+
   async function refreshConsoleState(input: { status?: boolean; proposals?: boolean }) {
     await Promise.all([
       input.status ? loadStatus({ clearError: false }) : Promise.resolve(),
@@ -399,11 +412,7 @@ export const useConsoleStore = defineStore("console", () => {
 
   async function refreshAfterProjectSwitch() {
     resetProjectScopedState();
-    await loadStatus({ clearError: false });
-
-    if (status.value?.project.active_project) {
-      await loadProposalQueue({ clearError: false });
-    }
+    await refreshWorkspace({ clearError: false });
   }
 
   async function runTask(
@@ -561,11 +570,13 @@ export const useConsoleStore = defineStore("console", () => {
     openQuestionCount,
     repositoryDetails,
     repositoryRecordCounts,
+    refreshWorkspace,
     loadStatus,
     loadProposalQueue,
     loadProposalSet,
     createManagedProject,
     openManagedProject,
+    openKnownProject,
     selectProjectDirectory,
     generateSelectedPackage,
     generatePackageFor,

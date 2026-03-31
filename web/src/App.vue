@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 
-import Button from "primevue/button";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
 
 import IntakeSection from "./components/console/IntakeSection.vue";
 import OverviewSection from "./components/console/OverviewSection.vue";
@@ -29,7 +27,8 @@ const screens: Array<{
     id: "overview",
     label: "Workspace",
     title: "Workspace",
-    description: "Choose a managed project, switch context, and inspect compact repository health.",
+    description:
+      "Stay oriented in the active project and reach project access only when you need to switch or create one.",
     icon: "pi pi-home",
   },
   {
@@ -70,35 +69,8 @@ const activeProjectName = computed(
   () => store.activeProject?.name ?? "No active project",
 );
 
-const issueCount = computed(() => store.validationIssueCount);
-const openQuestionCount = computed(() => store.openQuestionCount);
-
-const repositoryState = computed(() => {
-  if (!store.hasActiveProject) {
-    return { label: "Project required", severity: "warn" as const };
-  }
-
-  if (!store.repositoryDetails.available) {
-    return { label: "Repository unavailable", severity: "danger" as const };
-  }
-
-  if (store.repositoryDetails.isDirty) {
-    return { label: "Repository dirty", severity: "warn" as const };
-  }
-
-  return { label: "Repository clean", severity: "success" as const };
-});
-
-async function refreshConsole() {
-  await store.loadStatus();
-
-  if (store.hasActiveProject) {
-    await store.loadProposalQueue({ clearError: false });
-  }
-}
-
 onMounted(() => {
-  void refreshConsole();
+  void store.refreshWorkspace();
 });
 </script>
 
@@ -139,30 +111,9 @@ onMounted(() => {
             <p>{{ activeScreenMeta.description }}</p>
           </div>
 
-          <div class="app-header__actions">
-            <div class="app-header__project">
-              <span>Current project</span>
-              <strong>{{ activeProjectName }}</strong>
-            </div>
-            <Button
-              :label="store.hasActiveProject ? 'Switch project' : 'Open project'"
-              icon="pi pi-arrow-right-arrow-left"
-              severity="secondary"
-              @click="activeScreen = 'overview'"
-            />
-            <Tag :value="repositoryState.label" :severity="repositoryState.severity" />
-            <Tag :value="`${issueCount} issue(s)`" :severity="issueCount ? 'danger' : 'success'" />
-            <Tag
-              :value="`${openQuestionCount} open question(s)`"
-              :severity="openQuestionCount ? 'warn' : 'success'"
-            />
-            <Button
-              label="Refresh"
-              icon="pi pi-refresh"
-              severity="secondary"
-              :loading="store.isLoading || store.isLoadingProposals"
-              @click="refreshConsole"
-            />
+          <div class="app-header__project">
+            <span>Current project</span>
+            <strong>{{ activeProjectName }}</strong>
           </div>
         </header>
 
