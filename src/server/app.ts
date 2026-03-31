@@ -16,7 +16,12 @@ import {
   validateRepository,
 } from "../modules/artifacts/repository.js";
 import { generateReview } from "../modules/governance/review.js";
-import { analyzeRequest } from "../modules/intake/service.js";
+import { IntakeError, isIntakeError } from "../modules/intake/errors.js";
+import {
+  analyzeRequest,
+  type IntakeAnalysis,
+  type IntakeAnalysisClient,
+} from "../modules/intake/service.js";
 import { generatePackage, refreshPackageSet } from "../modules/packaging/service.js";
 import {
   createProject,
@@ -36,7 +41,11 @@ import {
 
 const logger = createLogger("server");
 
-export function createApp(studioRoot: string, options: ProjectServiceOptions = {}) {
+export interface ServerAppOptions extends ProjectServiceOptions {
+  intakeClient?: IntakeAnalysisClient;
+}
+
+export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
   const app = express();
   const webDistPath = path.join(studioRoot, "web/dist");
   const webIndexPath = path.join(webDistPath, "index.html");
@@ -235,8 +244,13 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
     try {
       const requestText =
         typeof request.body?.request === "string" ? request.body.request : "";
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
 
-      response.status(200).json(analyzeRequest(requestText));
+      response.status(200).json(
+        await analyzeRequest(projectRoot, requestText, {
+          client: options.intakeClient,
+        }),
+      );
     } catch (error) {
       next(error);
     }
@@ -272,10 +286,16 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
               ),
             )
           : {};
+      const analysis = isObjectRecord(request.body?.analysis)
+        ? (request.body.analysis as IntakeAnalysis)
+        : undefined;
 
       const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(201).json(
-        await generateIntakeProposalSet(projectRoot, requestText, answers as Record<string, string>),
+        await generateIntakeProposalSet(projectRoot, requestText, answers as Record<string, string>, {
+          analysis,
+          client: options.intakeClient,
+        }),
       );
     } catch (error) {
       next(error);
@@ -324,11 +344,27 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
       response: express.Response,
       _next: express.NextFunction,
     ) => {
+      const statusCode = error instanceof ApiRequestError ? error.status : isIntakeError(error) ? error.status : 500;
+      const errorCode =
+        error instanceof ApiRequestError ? error.code : isIntakeError(error) ? error.code : undefined;
+
       logger.error("request failed", {
         ...summarizeRequest(request),
-        status_code: 500,
+        error_code: errorCode,
+        status_code: statusCode,
         ...summarizeError(error),
       });
+
+      if (error instanceof ApiRequestError || isIntakeError(error)) {
+        response.status(statusCode).json({
+          error: error.message,
+          error_code: error.code,
+          retryable: error.retryable,
+          details: error.details,
+        });
+        return;
+      }
+
       response.status(500).json({
         error: error instanceof Error ? error.message : "unknown error",
       });
@@ -348,10 +384,41 @@ async function requireActiveProjectRoot(
     logger.warn("request requires an active project but none is selected", {
       studio_root: studioRoot,
     });
-    throw new Error("No active project selected.");
+    throw new ApiRequestError("active_project_missing", "No active project selected.", {
+      retryable: false,
+      status: 409,
+    });
   }
 
   return workspace.active_project.path;
+}
+
+class ApiRequestError extends Error {
+  readonly code: string;
+  readonly details?: Record<string, unknown>;
+  readonly retryable: boolean;
+  readonly status: number;
+
+  constructor(
+    code: string,
+    message: string,
+    options: {
+      details?: Record<string, unknown>;
+      retryable?: boolean;
+      status: number;
+    },
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.code = code;
+    this.details = options.details;
+    this.retryable = options.retryable ?? false;
+    this.status = options.status;
+  }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function emptyRepositoryValidation(): RepositoryValidation {

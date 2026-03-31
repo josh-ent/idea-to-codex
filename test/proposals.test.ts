@@ -13,6 +13,7 @@ import {
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
+import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const repos: FixtureRepo[] = [];
 
@@ -25,6 +26,12 @@ function track(repo: FixtureRepo): FixtureRepo {
   return repo;
 }
 
+function stubOptions() {
+  return {
+    client: createStubIntakeClient(),
+  };
+}
+
 describe("proposal workflow", () => {
   it("refuses intake proposal generation when blocking questions are unanswered", async () => {
     const repo = track(await createFixtureRepo());
@@ -35,6 +42,7 @@ describe("proposal workflow", () => {
         repo.rootDir,
         "Rename the glossary term and change the backend architecture.",
         {},
+        stubOptions(),
       ),
     ).rejects.toThrow("Unanswered blocking material questions");
   });
@@ -48,9 +56,10 @@ describe("proposal workflow", () => {
         repo.rootDir,
         "Improve the operator UI workflow for release review.",
         {
-          "Q-001": "Release operator",
-          "Q-002": "Approve generated package",
+          workflow_actor: "Release operator",
+          workflow_use_case: "Approve generated package",
         },
+        stubOptions(),
       ),
     ).rejects.toThrow("Unanswered blocking material questions");
   });
@@ -63,10 +72,13 @@ describe("proposal workflow", () => {
       repo.rootDir,
       "Rename the glossary term, change the backend architecture, and tighten the approval governance.",
       {
-        "Q-001": "Canonical replacement: `Proposal Draft`.",
-        "Q-002": "The backend owns truth mutation and the console only requests approval.",
-        "Q-003": "Human approval remains mandatory before meaning-bearing writes.",
+        terminology_integrity: "Canonical replacement: `Proposal Draft`.",
+        architecture_direction:
+          "The backend owns truth mutation and the console only requests approval.",
+        governance_posture:
+          "Human approval remains mandatory before meaning-bearing writes.",
       },
+      stubOptions(),
     );
 
     expect(proposalSet.record.source_type).toBe("intake");
@@ -125,6 +137,7 @@ describe("proposal workflow", () => {
       repo.rootDir,
       "Tidy the current fixture output.",
       {},
+      stubOptions(),
     );
     const backlogDraft = proposalSet.drafts.find(
       (draft) => draft.record.target_artifact === "BACKLOG.md",
@@ -166,10 +179,13 @@ describe("proposal workflow", () => {
       repo.rootDir,
       "Rename the glossary term, change the backend architecture, and tighten the approval governance.",
       {
-        "Q-001": "Canonical replacement: `Proposal Draft`.",
-        "Q-002": "The backend owns truth mutation and the console only requests approval.",
-        "Q-003": "Human approval remains mandatory before meaning-bearing writes.",
+        terminology_integrity: "Canonical replacement: `Proposal Draft`.",
+        architecture_direction:
+          "The backend owns truth mutation and the console only requests approval.",
+        governance_posture:
+          "Human approval remains mandatory before meaning-bearing writes.",
       },
+      stubOptions(),
     );
 
     for (const targetArtifact of ["ASSUMPTIONS.md", "GLOSSARY.md"]) {
@@ -191,7 +207,7 @@ describe("proposal workflow", () => {
     await approveProposalDraft(repo.rootDir, trancheDraft!.id);
     await approveProposalDraft(repo.rootDir, decisionDraft!.id);
 
-    expect(await repo.read("ASSUMPTIONS.md")).toContain("Q-003 was resolved as");
+    expect(await repo.read("ASSUMPTIONS.md")).toContain("governance_posture was resolved as");
     expect(await repo.read("GLOSSARY.md")).toContain("## Proposal Draft");
     expect(await repo.exists(trancheDraft!.record.target_artifact)).toBe(true);
     expect(await repo.exists(decisionDraft!.record.target_artifact)).toBe(true);
@@ -205,11 +221,12 @@ describe("proposal workflow", () => {
       repo.rootDir,
       "Improve the operator UI workflow for release review.",
       {
-        "Q-001": "Release operator",
-        "Q-002": "Approve generated package",
-        "Q-003": "Confirm the package is ready without reading raw markdown",
-        "Q-004": "Keep approval-gated writes; show tranche scope before approval",
+        workflow_actor: "Release operator",
+        workflow_use_case: "Approve generated package",
+        workflow_goal: "Confirm the package is ready without reading raw markdown",
+        workflow_constraints: "Keep approval-gated writes; show tranche scope before approval",
       },
+      stubOptions(),
     );
 
     const trancheDraft = proposalSet.drafts.find((draft) =>
@@ -239,6 +256,7 @@ describe("proposal workflow", () => {
       repo.rootDir,
       "Tidy the current fixture output.",
       {},
+      stubOptions(),
     );
     const backlogDraft = proposalSet.drafts.find(
       (draft) => draft.record.target_artifact === "BACKLOG.md",

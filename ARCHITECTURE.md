@@ -10,7 +10,7 @@ This document describes the current system structure.
 
 ## Current implementation shape
 
-- A Node backend owns managed-project selection, file-backed bootstrap, validation, intake analysis, review checkpoint generation, traceability, and package assembly.
+- A Node backend owns managed-project selection, file-backed bootstrap, validation, model-backed intake analysis, review checkpoint generation, traceability, and package assembly.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
 - A proposal layer persists approval-gated drafts under `docs/proposals/` and applies them only through backend-owned write paths.
 - Workflow critique now uses durable `Actor`, `Use Case`, goal, and constraint fields on workflow-scoped tranches and reuses that context in review and package generation.
@@ -20,7 +20,8 @@ This document describes the current system structure.
 
 - `artifacts`: repository paths, baseline templates, markdown record loading, and durable writes.
 - `governance`: drift signals, review triggers, review checkpoint generation, and placeholder detection for `Actor` / `Use Case` workflow critique.
-- `intake`: deterministic request classification and Material Question generation.
+- `intake`: canonical request normalization, context loading, model-backed intake analysis, contract validation, and analysis reuse checks.
+- `llm`: the small OpenAI structured-output adapter used by intake analysis.
 - `packaging`: plan and execution package assembly from validated repo truth.
 - `proposals`: proposal-set generation, proposal-draft persistence, and approval-gated truth mutation for supported artefacts.
 - `traceability`: explicit links between tranches, decisions, packages, reviews, and affected artefacts.
@@ -48,5 +49,4 @@ This document describes the current system structure.
 ## Deferred work
 
 - Proposal writers for `DATA_DICTIONARY.md` and other meaning-bearing artefacts beyond the current supported set.
-- Model-backed translation beyond the current deterministic intake path.
 - Direct Codex invocation from inside the product.

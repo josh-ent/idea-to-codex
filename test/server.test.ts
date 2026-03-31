@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import path from "node:path";
 
-import { createApp } from "../src/server/app.js";
+import { createApp, type ServerAppOptions } from "../src/server/app.js";
 import {
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
-import type { ProjectServiceOptions } from "../src/modules/projects/service.js";
+import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const repos: FixtureRepo[] = [];
 
@@ -25,12 +25,14 @@ function createManagedProjectApp(repo: FixtureRepo) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
     fallbackActiveProjectRoot: repo.rootDir,
+    intakeClient: createStubIntakeClient(),
   });
 }
 
-function createWorkspaceApp(repo: FixtureRepo, overrides: ProjectServiceOptions = {}) {
+function createWorkspaceApp(repo: FixtureRepo, overrides: ServerAppOptions = {}) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
+    intakeClient: createStubIntakeClient(),
     ...overrides,
   });
 }
@@ -202,8 +204,21 @@ describe("server routes", () => {
     expect(response.body.path).toBeNull();
   });
 
+  it("rejects intake analysis when no active project is selected", async () => {
+    const repo = track(await createFixtureRepo());
+    const app = createWorkspaceApp(repo);
+
+    const response = await request(app).post("/api/intake/analyze").send({
+      request: "Rename the glossary term.",
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error_code).toBe("active_project_missing");
+  });
+
   it("returns the empty/default intake analysis for missing or non-string request bodies", async () => {
-    const app = createApp(process.cwd());
+    const repo = track(await createFixtureRepo());
+    const app = createManagedProjectApp(repo);
 
     const missingResponse = await request(app).post("/api/intake/analyze").send({});
     expect(missingResponse.status).toBe(200);
@@ -219,7 +234,8 @@ describe("server routes", () => {
   });
 
   it("returns the expanded workflow intake question set through the api", async () => {
-    const app = createApp(process.cwd());
+    const repo = track(await createFixtureRepo());
+    const app = createManagedProjectApp(repo);
 
     const response = await request(app).post("/api/intake/analyze").send({
       request: "Improve the operator UI workflow for release review.",

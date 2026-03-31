@@ -1,6 +1,7 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import { defineStore } from "pinia";
 import {
+  ApiError,
   type CreateProjectPayload,
   type DirectorySelectionPayload,
   getJson,
@@ -32,6 +33,7 @@ export const useConsoleStore = defineStore("console", () => {
   const isRefreshingPackageSet = ref(false);
   const isGeneratingReview = ref(false);
   const isGeneratingProposal = ref(false);
+  const isAnalyzingIntake = ref(false);
   const activeProposalMutationId = ref("");
   const packageType = ref<"plan" | "execution">("plan");
   const selectedTrancheId = ref<string>("");
@@ -44,7 +46,11 @@ export const useConsoleStore = defineStore("console", () => {
   const intakeRequest = ref("");
   const intakeAnalysis = ref<IntakeAnalysis | null>(null);
   const intakeAnswers = ref<Record<string, string>>({});
+  const intakeAnalysisStale = ref(false);
+  const lastAnalyzedRequest = ref("");
   const lastError = ref<string>("");
+  const lastErrorCode = ref("");
+  const lastErrorRetryable = ref(false);
   const isCreatingProject = ref(false);
   const isOpeningProject = ref(false);
   const isSelectingProjectPath = ref(false);
@@ -274,21 +280,21 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
-    lastError.value = "";
-
-    try {
-      intakeAnalysis.value = await postJson<IntakeAnalysis>("/api/intake/analyze", {
-        request: intakeRequest.value,
+    await runTask(isAnalyzingIntake, "intake analysis failed", async () => {
+      const priorAnswers = { ...intakeAnswers.value };
+      const analysis = await postJson<IntakeAnalysis>("/api/intake/analyze", {
+        request: intakeRequest.value.trim(),
       });
+      intakeAnalysis.value = analysis;
+      intakeAnalysisStale.value = false;
+      lastAnalyzedRequest.value = normalizeIntakeRequest(intakeRequest.value);
       intakeAnswers.value = Object.fromEntries(
-        intakeAnalysis.value.material_questions.map((question) => [
+        analysis.material_questions.map((question) => [
           question.id,
-          intakeAnswers.value[question.id] ?? "",
+          priorAnswers[question.id] ?? "",
         ]),
       );
-    } catch (error) {
-      setTaskError(error, "intake analysis failed");
-    }
+    });
   }
 
   async function generateIntakeProposalSetFromAnalysis() {
@@ -297,10 +303,21 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
+    if (!intakeAnalysis.value) {
+      lastError.value = "Run intake analysis before generating proposals.";
+      return;
+    }
+
+    if (intakeAnalysisStale.value) {
+      lastError.value = "Re-run intake analysis before generating proposals.";
+      return;
+    }
+
     await runTask(isGeneratingProposal, "proposal generation failed", async () => {
       selectedProposalSet.value = await postJson<ProposalSetPayload>("/api/proposals/intake", {
         request: intakeRequest.value,
         answers: intakeAnswers.value,
+        analysis: intakeAnalysis.value,
       });
       selectedProposalSetId.value = selectedProposalSet.value.id;
       await refreshConsoleState({ status: true, proposals: true });
@@ -387,6 +404,20 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   function setTaskError(error: unknown, fallbackMessage: string) {
+    if (error instanceof ApiError) {
+      lastErrorCode.value = error.errorCode ?? "";
+      lastErrorRetryable.value = error.retryable;
+      lastError.value = readApiErrorMessage(error, fallbackMessage);
+
+      if (error.errorCode?.startsWith("analysis_")) {
+        intakeAnalysisStale.value = true;
+      }
+
+      return;
+    }
+
+    lastErrorCode.value = "";
+    lastErrorRetryable.value = false;
     lastError.value = error instanceof Error ? error.message : fallbackMessage;
   }
 
@@ -422,6 +453,8 @@ export const useConsoleStore = defineStore("console", () => {
   ) {
     flag.value = true;
     lastError.value = "";
+    lastErrorCode.value = "";
+    lastErrorRetryable.value = false;
 
     try {
       await task();
@@ -442,6 +475,8 @@ export const useConsoleStore = defineStore("console", () => {
     generatedReview.value = null;
     intakeAnalysis.value = null;
     intakeAnswers.value = {};
+    intakeAnalysisStale.value = false;
+    lastAnalyzedRequest.value = "";
   }
 
   const trancheOptions = computed(() =>
@@ -465,6 +500,13 @@ export const useConsoleStore = defineStore("console", () => {
 
   const hasUnansweredBlockingQuestions = computed(() =>
     blockingQuestions.value.some((question) => !intakeAnswers.value[question.id]?.trim()),
+  );
+  const canGenerateIntakeProposalSet = computed(
+    () =>
+      Boolean(intakeAnalysis.value) &&
+      !intakeAnalysisStale.value &&
+      !hasUnansweredBlockingQuestions.value &&
+      !isGeneratingProposal.value,
   );
 
   const activeProject = computed(() => status.value?.project.active_project ?? null);
@@ -531,6 +573,15 @@ export const useConsoleStore = defineStore("console", () => {
 
   const hasActiveProject = computed(() => Boolean(status.value?.project.active_project));
 
+  watch(intakeRequest, (nextValue) => {
+    if (!intakeAnalysis.value) {
+      return;
+    }
+
+    intakeAnalysisStale.value =
+      normalizeIntakeRequest(nextValue) !== lastAnalyzedRequest.value;
+  });
+
   return {
     status,
     proposalSets,
@@ -542,6 +593,7 @@ export const useConsoleStore = defineStore("console", () => {
     isRefreshingPackageSet,
     isGeneratingReview,
     isGeneratingProposal,
+    isAnalyzingIntake,
     activeProposalMutationId,
     packageType,
     selectedTrancheId,
@@ -554,13 +606,17 @@ export const useConsoleStore = defineStore("console", () => {
     intakeRequest,
     intakeAnalysis,
     intakeAnswers,
+    intakeAnalysisStale,
     lastError,
+    lastErrorCode,
+    lastErrorRetryable,
     isCreatingProject,
     isOpeningProject,
     isSelectingProjectPath,
     trancheOptions,
     blockingQuestions,
     hasUnansweredBlockingQuestions,
+    canGenerateIntakeProposalSet,
     reviewPackageRegenerationIds,
     canGenerateReviewFollowUp,
     hasActiveProject,
@@ -592,3 +648,19 @@ export const useConsoleStore = defineStore("console", () => {
     setIntakeAnswerFromEvent,
   };
 });
+
+function normalizeIntakeRequest(value: string): string {
+  return value.replace(/\r\n?/g, "\n").trim().replace(/\n{3,}/g, "\n\n");
+}
+
+function readApiErrorMessage(error: ApiError, fallbackMessage: string): string {
+  if (error.errorCode?.startsWith("analysis_")) {
+    return `${error.message} Re-run intake analysis before generating proposals.`;
+  }
+
+  if (error.retryable) {
+    return `${error.message} You can retry this action.`;
+  }
+
+  return error.message || fallbackMessage;
+}

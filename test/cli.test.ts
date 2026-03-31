@@ -4,11 +4,13 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { analyzeRequest } from "../src/modules/intake/service.js";
 import {
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
+import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = process.cwd();
@@ -24,6 +26,15 @@ afterEach(async () => {
 function track(repo: FixtureRepo): FixtureRepo {
   repos.push(repo);
   return repo;
+}
+
+async function writeStubAnalysis(repo: FixtureRepo, requestText: string): Promise<string> {
+  const analysis = await analyzeRequest(repo.rootDir, requestText, {
+    client: createStubIntakeClient(),
+  });
+  const relativePath = "tmp/intake-analysis.json";
+  await repo.write(relativePath, JSON.stringify(analysis, null, 2));
+  return relativePath;
 }
 
 async function runCli(
@@ -133,10 +144,12 @@ describe("cli commands", () => {
   it("prints JSON for intake proposal generation", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
+    const analysisPath = await writeStubAnalysis(repo, "Tidy the current fixture output.");
 
     const result = await runCli(repo.rootDir, [
       "proposal:intake",
       "Tidy the current fixture output.",
+      `--analysis-file=${analysisPath}`,
     ]);
 
     expect(result.code).toBe(0);
@@ -158,10 +171,12 @@ describe("cli commands", () => {
   it("approves and rejects proposals from the cli", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
+    const analysisPath = await writeStubAnalysis(repo, "Tidy the current fixture output.");
 
     const createResult = await runCli(repo.rootDir, [
       "proposal:intake",
       "Tidy the current fixture output.",
+      `--analysis-file=${analysisPath}`,
     ]);
     const created = JSON.parse(createResult.stdout) as {
       drafts: Array<{ id: string; record: { target_artifact: string } }>;

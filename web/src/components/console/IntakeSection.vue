@@ -37,6 +37,8 @@ const store = useConsoleStore();
             <Button
               label="Analyze request"
               icon="pi pi-search"
+              :loading="store.isAnalyzingIntake"
+              :disabled="store.isAnalyzingIntake"
               @click="store.analyzeIntakeRequest"
             />
           </div>
@@ -66,7 +68,54 @@ const store = useConsoleStore();
                 <strong>Draft assumptions:</strong>
                 {{ store.intakeAnalysis.draft_assumptions.join(", ") || "None proposed" }}
               </li>
+              <li>
+                <strong>Analysis model:</strong>
+                {{
+                  store.intakeAnalysis.analysis_metadata.resolved_model
+                    || store.intakeAnalysis.analysis_metadata.configured_model
+                }}
+              </li>
+              <li>
+                <strong>Context status:</strong>
+                {{
+                  store.intakeAnalysis.analysis_metadata.context_truncated
+                    || store.intakeAnalysis.analysis_metadata.context_sources_missing.length > 0
+                    || store.intakeAnalysis.analysis_metadata.context_sources_invalid.length > 0
+                    ? "Partial context disclosed below"
+                    : "Full selected context loaded"
+                }}
+              </li>
             </ul>
+
+            <small>
+              Intake analysis is advisory only. Proposal drafts remain approval-gated before any
+              target artefact changes.
+            </small>
+
+            <small
+              v-if="
+                store.intakeAnalysis.analysis_metadata.context_sources_missing.length > 0
+                || store.intakeAnalysis.analysis_metadata.context_sources_invalid.length > 0
+                || store.intakeAnalysis.analysis_metadata.context_truncated
+              "
+            >
+              Missing:
+              {{
+                store.intakeAnalysis.analysis_metadata.context_sources_missing
+                  .map((entry) => entry.path)
+                  .join(", ") || "none"
+              }}
+              |
+              Invalid:
+              {{
+                store.intakeAnalysis.analysis_metadata.context_sources_invalid
+                  .map((entry) => entry.path)
+                  .join(", ") || "none"
+              }}
+              |
+              Truncated:
+              {{ store.intakeAnalysis.analysis_metadata.context_truncated ? "yes" : "no" }}
+            </small>
           </template>
 
           <div v-else class="empty-state">
@@ -91,7 +140,7 @@ const store = useConsoleStore();
             class="record-card"
           >
             <div class="record-card__header">
-              <h3>{{ question.id }}</h3>
+              <h3>{{ question.display_id }}</h3>
               <Tag
                 :value="question.blocking ? 'blocking' : 'non-blocking'"
                 :severity="question.blocking ? 'danger' : 'warn'"
@@ -124,10 +173,13 @@ const store = useConsoleStore();
               label="Generate proposal set"
               icon="pi pi-pencil"
               :loading="store.isGeneratingProposal"
-              :disabled="store.hasUnansweredBlockingQuestions"
+              :disabled="!store.canGenerateIntakeProposalSet"
               @click="store.generateIntakeProposalSetFromAnalysis"
             />
-            <small v-if="store.hasUnansweredBlockingQuestions">
+            <small v-if="store.intakeAnalysisStale">
+              Re-run analysis before proposal generation because the request changed.
+            </small>
+            <small v-else-if="store.hasUnansweredBlockingQuestions">
               Blocking questions still need answers before proposal generation.
             </small>
           </div>

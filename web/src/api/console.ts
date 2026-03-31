@@ -145,6 +145,7 @@ export interface ProposalSetPayload {
 
 export interface IntakeQuestion {
   id: string;
+  display_id: string;
   type: string;
   blocking: boolean;
   default_recommendation: string;
@@ -154,6 +155,35 @@ export interface IntakeQuestion {
   prompt: string;
 }
 
+export interface IntakeAnalysisMetadataSource {
+  path: string;
+  content_hash: string;
+  truncated: boolean;
+}
+
+export interface IntakeAnalysisMetadataIssue {
+  path: string;
+  reason: string;
+}
+
+export interface IntakeAnalysisMetadata {
+  provider: string;
+  lane: string;
+  configured_model: string;
+  resolved_model: string | null;
+  schema_version: number;
+  prompt_version: string;
+  canonical_project_root: string;
+  request_hash: string;
+  context_hash: string;
+  analysis_hash: string;
+  duration_ms: number;
+  context_sources_used: IntakeAnalysisMetadataSource[];
+  context_sources_missing: IntakeAnalysisMetadataIssue[];
+  context_sources_invalid: IntakeAnalysisMetadataIssue[];
+  context_truncated: boolean;
+}
+
 export interface IntakeAnalysis {
   summary: string;
   recommended_tranche_title: string;
@@ -161,6 +191,31 @@ export interface IntakeAnalysis {
   affected_modules: string[];
   material_questions: IntakeQuestion[];
   draft_assumptions: string[];
+  analysis_metadata: IntakeAnalysisMetadata;
+}
+
+export class ApiError extends Error {
+  readonly details?: Record<string, unknown>;
+  readonly errorCode?: string;
+  readonly retryable: boolean;
+  readonly status: number;
+
+  constructor(
+    message: string,
+    options: {
+      details?: Record<string, unknown>;
+      errorCode?: string;
+      retryable?: boolean;
+      status: number;
+    },
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.details = options.details;
+    this.errorCode = options.errorCode;
+    this.retryable = options.retryable ?? false;
+    this.status = options.status;
+  }
 }
 
 export async function postJson<T>(
@@ -174,12 +229,10 @@ export async function postJson<T>(
     },
     body: JSON.stringify(body),
   });
-  const payload = (await response.json()) as T | { error?: string; errors?: string[] };
+  const payload = (await response.json()) as T | ApiErrorPayload;
 
   if (!response.ok) {
-    throw new Error(
-      readApiError(payload as { error?: string; errors?: string[] }, response.status),
-    );
+    throw toApiError(payload as ApiErrorPayload, response.status);
   }
 
   return payload as T;
@@ -187,21 +240,33 @@ export async function postJson<T>(
 
 export async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path);
-  const payload = (await response.json()) as T | { error?: string; errors?: string[] };
+  const payload = (await response.json()) as T | ApiErrorPayload;
 
   if (!response.ok) {
-    throw new Error(
-      readApiError(payload as { error?: string; errors?: string[] }, response.status),
-    );
+    throw toApiError(payload as ApiErrorPayload, response.status);
   }
 
   return payload as T;
 }
 
-function readApiError(
-  payload: { error?: string; errors?: string[] },
-  status: number,
-): string {
+interface ApiErrorPayload {
+  details?: Record<string, unknown>;
+  error?: string;
+  error_code?: string;
+  errors?: string[];
+  retryable?: boolean;
+}
+
+function toApiError(payload: ApiErrorPayload, status: number): ApiError {
+  return new ApiError(readApiErrorMessage(payload, status), {
+    details: payload.details,
+    errorCode: typeof payload.error_code === "string" ? payload.error_code : undefined,
+    retryable: payload.retryable === true,
+    status,
+  });
+}
+
+function readApiErrorMessage(payload: ApiErrorPayload, status: number): string {
   if (typeof payload.error === "string") {
     return payload.error;
   }

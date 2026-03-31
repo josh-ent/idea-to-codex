@@ -11,7 +11,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - manage one explicit active project instead of implicitly governing the Studio repo;
 - generate deterministic plan and execution packages from repository truth;
 - expose a Node backend and Vue.js operator console over that contract;
-- analyze vague requests into bounded intake outputs;
+- analyze vague requests into bounded intake outputs through model-backed intake analysis;
 - persist review checkpoints and surface drift signals.
 - persist approval-gated proposal drafts for meaning-bearing artefacts and apply them only after explicit operator approval.
 - re-validate proposal relationships and roll back any approval that would leave repository truth invalid.
@@ -46,6 +46,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
 - `npm run package:refresh -- <TRANCHE_ID>` regenerates and persists the plan and execution package set for a tranche.
 - `npm run review -- <TRANCHE_ID>` generates a persisted review checkpoint.
+- `npm run intake:analyze -- "<request>"` prints the canonical intake analysis contract for the current project root.
 - `npm run proposal:intake -- "<request>"` generates a persisted proposal set from intake analysis.
 - `npm run proposal:review -- <TRANCHE_ID>` generates a persisted proposal set from review findings.
 - `npm run proposal:approve -- <PROPOSAL_ID>` approves one proposal draft and writes its target artefact.
@@ -61,6 +62,15 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - Production defaults to `info`.
 - Test runs default to `error` to keep automated output readable.
 - Override the level with `IDEA_TO_CODEX_LOG_LEVEL=trace|debug|info|warn|error|silent` or `LOG_LEVEL=...`.
+
+## Intake analysis
+
+- Intake analysis is now model-backed and uses the OpenAI Responses API with structured outputs.
+- The backend owns the canonical schema, stable question ids, question prompts, blocking flags, and metadata hashes.
+- `material_questions[].id` is the stable key used for answers and deterministic proposal generation.
+- `material_questions[].display_id` is presentation-only.
+- Intake analysis is advisory. Proposal drafts remain approval-gated before any target artefact changes.
+- Configure the intake lane with `OPENAI_API_KEY`, optional `OPENAI_INTAKE_MODEL` or `OPENAI_BROAD_REASONING_MODEL`, and optional `OPENAI_RESPONSES_TIMEOUT_MS`.
 
 ## First use
 

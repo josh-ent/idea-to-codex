@@ -28,7 +28,11 @@ import {
   normalizeWorkflowConstraints,
   type WorkflowContext,
 } from "../governance/workflow.js";
-import { analyzeRequest } from "../intake/service.js";
+import {
+  resolveIntakeAnalysis,
+  type IntakeAnalysis,
+  type IntakeAnalysisOptions,
+} from "../intake/service.js";
 import {
   buildAssumptionsProposal,
   buildBacklogProposal,
@@ -171,15 +175,19 @@ export async function generateIntakeProposalSet(
   rootDir: string,
   requestText: string,
   answers: Record<string, string>,
+  options: IntakeAnalysisOptions = {},
 ): Promise<ProposalSetDetail> {
   return logOperation(
     logger,
     "generate intake proposal set",
     async () => {
       const validation = await requireCleanRepository(rootDir);
-      const analysis = analyzeRequest(requestText);
+      const analysis = await resolveIntakeAnalysis(rootDir, requestText, options);
       const unanswered = analysis.material_questions.filter(
         (question) => question.blocking && !answers[question.id]?.trim(),
+      );
+      const unknownAnswerIds = Object.keys(answers).filter(
+        (questionId) => !analysis.material_questions.some((question) => question.id === questionId),
       );
 
       if (unanswered.length > 0) {
@@ -188,6 +196,10 @@ export async function generateIntakeProposalSet(
             .map((question) => question.id)
             .join(", ")}`,
         );
+      }
+
+      if (unknownAnswerIds.length > 0) {
+        throw new Error(`Unknown material question ids: ${unknownAnswerIds.join(", ")}`);
       }
 
       const setId = nextIdentifier(
@@ -439,6 +451,7 @@ export async function generateIntakeProposalSet(
         summary: `Draft proposals generated from intake request: ${analysis.summary}`,
         sourceContext: [
           `- Raw request: ${requestText.trim() || "No request provided."}`,
+          `- Intake analysis hash: ${analysis.analysis_metadata.analysis_hash}`,
           ...formatAnswerLines(answers),
         ],
         drafts: draftInputs,
@@ -994,7 +1007,7 @@ function deriveGlossaryTerms(
 }
 
 function deriveWorkflowContext(
-  analysis: ReturnType<typeof analyzeRequest>,
+  analysis: IntakeAnalysis,
   answers: Record<string, string>,
 ): WorkflowContext | null {
   const questionIds = Object.fromEntries(

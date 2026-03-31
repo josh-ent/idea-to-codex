@@ -48,7 +48,7 @@ function captureStderr() {
   const spy = vi
     .spyOn(process.stderr, "write")
     .mockImplementation((chunk: string | Uint8Array) => {
-      lines.push(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+      lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
       return true;
     });
 

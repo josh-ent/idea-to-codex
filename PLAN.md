@@ -42,7 +42,7 @@ The first release should prove one thin end-to-end governance loop, not build a 
 
 - The repo now has the baseline durable artefacts, initial decision and tranche records, prompt templates, generated handoff snapshots, and a file-backed Node backend.
 - This is good: the repository contract is now explicit enough to validate and generate packages deterministically.
-- The repo now also has a Vue.js operator console, deterministic intake analysis, and persisted review checkpoints.
+- The repo now also has a Vue.js operator console, model-backed intake analysis with a canonical schema-v2 contract, and persisted review checkpoints.
 - The next meaningful gap is review-history and triage ergonomics now that the main review actions are exposed directly in the console.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
@@ -71,7 +71,7 @@ This platform improves inputs, preserves truth, and manages review discipline. I
 The platform must prove this exact loop before expanding:
 
 1. A human enters one vague but realistic project request.
-2. The system classifies the request and identifies affected artefacts.
+2. The system analyzes the request through the canonical intake pipeline and identifies affected artefacts.
 3. The system raises only the material questions needed to proceed.
 4. The resulting answers become:
    - one or more decisions;
@@ -203,12 +203,18 @@ Each entry should define:
 ### 7.6 Question schema
 Material questions should carry:
 - `id`
+- `display_id`
 - `type`
 - `blocking`
 - `default_recommendation`
 - `consequence_of_non_decision`
 - `affected_artifacts`
 - `status`
+
+Rules:
+- `id` is the stable canonical question identity and must not depend on model output order.
+- `display_id` is presentation-only.
+- v2 allows at most one question per canonical question type.
 
 ### 7.7 Review checkpoint schema
 Each review record should carry at least:
@@ -239,9 +245,9 @@ Use a Node backend with a Vue.js frontend using Pinia for client state and Prime
 - `governance`: question handling, escalation logic, review triggers, drift signals.
 - `packaging`: assemble validated plan and execution packages.
 - `intake`: turn vague requests into structured proposed changes.
+- `llm`: OpenAI structured-output intake analysis and future bounded reasoning adapters.
 - `traceability`: maintain causal links between requests, questions, decisions, artefacts, tranches, and packages.
 - `ui`: operator-facing workflow.
-- `llm`: adapters for core GPT reasoning, Codex packaging, and higher-effort review/research paths.
 
 ### Design rule
 No separate database in v1 unless file-backed operation proves insufficient. The repo is the truth store.
