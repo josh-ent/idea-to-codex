@@ -108,43 +108,63 @@ export const defaultExecutionConduct = [
   "Leave the repository in a committed state before handing the tranche back for review.",
 ] as const;
 
-export const baselineTemplates = [
-  {
-    path: "README.md",
-    content: `# Project Specification Engine
+export function baselineTemplates(projectName: string) {
+  return [
+    {
+      path: "README.md",
+      content: `# ${projectName}
 
-This repository contains a repository-backed specification engine for preparing strong Codex handoffs.
+This repository contains the durable project truth for ${projectName}.
 
 ## Current scope
 
-- repository contract
-- file-backed validation
-- deterministic package generation
+- Capture project aims, architecture, backlog, decisions, and tranche records.
+- Keep glossary and data dictionary terms explicit and consistent.
+- Generate plan, execution, proposal, and review artefacts from repository truth.
 `,
-  },
-  {
-    path: "ARCHITECTURE.md",
-    content: `# Architecture
+    },
+    {
+      path: "PROJECT_AIMS.md",
+      content: `# Project Aims
+
+## Summary
+
+Define the product vision, outcome, and non-goals for ${projectName} here.
+`,
+    },
+    {
+      path: "PLAN.md",
+      content: `# Plan
+
+## 18. Open Questions That Genuinely Need Answering
+
+- None.
+`,
+    },
+    {
+      path: "ARCHITECTURE.md",
+      content: `# Architecture
 
 ## Purpose
 
-Describe the current implementation shape of the platform here.
+Describe the current implementation shape of ${projectName} here.
 `,
-  },
-  {
-    path: "GLOSSARY.md",
-    content: `# Glossary
+    },
+    {
+      path: "GLOSSARY.md",
+      content: `# Glossary
 
 ## Artefact
 
 - Canonical name: \`Artefact\`
 - Allowed aliases: \`artifact\`
 - Definition: A versioned repository item that carries project truth.
+- Notes / usage constraints: Use for durable repository records and generated handoffs.
 `,
-  },
-  {
-    path: "DATA_DICTIONARY.md",
-    content: `# Data Dictionary
+    },
+    {
+      path: "DATA_DICTIONARY.md",
+      content: `# Data Dictionary
 
 ## Decision Record
 
@@ -152,37 +172,45 @@ Describe the current implementation shape of the platform here.
 | --- | --- | --- |
 | \`id\` | string | Stable decision identifier. |
 `,
-  },
-  {
-    path: "ASSUMPTIONS.md",
-    content: `# Assumptions
+    },
+    {
+      path: "ASSUMPTIONS.md",
+      content: `# Assumptions
 
 ## Active assumptions
 
 - Capture active assumptions here.
 `,
-  },
-  {
-    path: "RISKS.md",
-    content: `# Risks
+    },
+    {
+      path: "RISKS.md",
+      content: `# Risks
 
 ## Active risks
 
 - Capture active risks here.
 `,
-  },
-  {
-    path: "BACKLOG.md",
-    content: `# Backlog
+    },
+    {
+      path: "BACKLOG.md",
+      content: `# Backlog
 
 ## Active tranches
 
-- Capture active tranches here.
+- None.
+
+## Completed tranches
+
+- None.
+
+## Next candidate tranches
+
+- None yet.
 `,
-  },
-  {
-    path: "docs/decisions/TEMPLATE.md",
-    content: `---
+    },
+    {
+      path: "docs/decisions/TEMPLATE.md",
+      content: `---
 id: DEC-XXX
 title: Replace this title
 status: proposed
@@ -204,10 +232,10 @@ tags: []
 
 # Follow-up actions
 `,
-  },
-  {
-    path: "docs/reviews/TEMPLATE.md",
-    content: `---
+    },
+    {
+      path: "docs/reviews/TEMPLATE.md",
+      content: `---
 id: REVIEW-TRANCHE-XXX
 source_tranche: TRANCHE-XXX
 status: recorded
@@ -232,10 +260,10 @@ drift_signals: []
 
 # Durable Changes
 `,
-  },
-  {
-    path: "docs/tranches/TEMPLATE.md",
-    content: `---
+    },
+    {
+      path: "docs/tranches/TEMPLATE.md",
+      content: `---
 id: TRANCHE-XXX
 title: Replace this title
 status: proposed
@@ -263,10 +291,10 @@ acceptance_status: not_started
 
 # Notes
 `,
-  },
-  {
-    path: "prompts/templates/plan-package.md",
-    content: `---
+    },
+    {
+      path: "prompts/templates/plan-package.md",
+      content: `---
 template_type: plan
 required_sections:
   - Objective
@@ -302,10 +330,10 @@ target_consumer: Codex
 
 # Planning Success Criteria
 `,
-  },
-  {
-    path: "prompts/templates/execution-package.md",
-    content: `---
+    },
+    {
+      path: "prompts/templates/execution-package.md",
+      content: `---
 template_type: execution
 required_sections:
   - Objective
@@ -344,5 +372,6 @@ target_consumer: Codex
 
 # Definition Of Done
 `,
-  },
-] as const;
+    },
+  ] as const;
+}

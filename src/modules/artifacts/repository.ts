@@ -81,8 +81,12 @@ export interface RepositoryValidation {
   traceLinks: TraceLink[];
 }
 
-export async function bootstrapRepository(rootDir: string): Promise<string[]> {
+export async function bootstrapRepository(
+  rootDir: string,
+  options?: { projectName?: string },
+): Promise<string[]> {
   const created: string[] = [];
+  const projectName = options?.projectName?.trim() || "New Project";
 
   for (const relativePath of requiredDirectories) {
     const absolutePath = path.join(rootDir, relativePath);
@@ -95,7 +99,7 @@ export async function bootstrapRepository(rootDir: string): Promise<string[]> {
     }
   }
 
-  for (const template of baselineTemplates) {
+  for (const template of baselineTemplates(projectName)) {
     const absolutePath = path.join(rootDir, template.path);
 
     try {
@@ -126,6 +130,7 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
   );
 
   const decisions = await loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/decisions"),
     decisionFrontmatterSchema,
     decisionSections,
@@ -135,30 +140,35 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
   const proposalDrafts = await loadProposalDraftRecords(rootDir);
 
   const tranches = await loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/tranches"),
     trancheFrontmatterSchema,
     trancheSections,
   );
 
   const reviews = await loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/reviews"),
     reviewFrontmatterSchema,
     reviewSections,
   );
 
   const planPackages = await loadHandoffDirectory(
+    rootDir,
     path.join(rootDir, "handoffs/plan"),
     "plan",
     planTemplateSections,
   );
 
   const executionPackages = await loadHandoffDirectory(
+    rootDir,
     path.join(rootDir, "handoffs/execution"),
     "execution",
     executionTemplateSections,
   );
 
   const planTemplate = await loadSingleRecord(
+    rootDir,
     path.join(rootDir, "prompts/templates/plan-package.md"),
     promptTemplateSchema.refine((value) => value.template_type === "plan", {
       path: ["template_type"],
@@ -168,6 +178,7 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
   );
 
   const executionTemplate = await loadSingleRecord(
+    rootDir,
     path.join(rootDir, "prompts/templates/execution-package.md"),
     promptTemplateSchema.refine((value) => value.template_type === "execution", {
       path: ["template_type"],
@@ -177,13 +188,13 @@ export async function validateRepository(rootDir: string): Promise<RepositoryVal
   );
 
   const assumptions = parseAssumptions(
-    await fs.readFile(path.join(rootDir, "ASSUMPTIONS.md"), "utf8"),
+    await readFileOrEmpty(path.join(rootDir, "ASSUMPTIONS.md")),
   );
   const glossaryTerms = parseGlossary(
-    await fs.readFile(path.join(rootDir, "GLOSSARY.md"), "utf8"),
+    await readFileOrEmpty(path.join(rootDir, "GLOSSARY.md")),
   );
   const openQuestions = extractBulletItems(
-    await fs.readFile(path.join(rootDir, "PLAN.md"), "utf8"),
+    await readFileOrEmpty(path.join(rootDir, "PLAN.md")),
     "18. Open Questions That Genuinely Need Answering",
   );
   const globalErrors = [
@@ -266,6 +277,7 @@ export async function loadTranche(
   trancheId: string,
 ): Promise<ValidatedRecord<TrancheFrontmatter>> {
   const tranches = await loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/tranches"),
     trancheFrontmatterSchema,
     trancheSections,
@@ -285,6 +297,7 @@ export async function loadTranche(
 
 export async function loadDecisions(rootDir: string) {
   return loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/decisions"),
     decisionFrontmatterSchema,
     decisionSections,
@@ -293,6 +306,7 @@ export async function loadDecisions(rootDir: string) {
 
 export async function loadHandoffPackage(rootDir: string, relativePath: string) {
   return loadSingleRecord(
+    rootDir,
     path.join(rootDir, relativePath),
     handoffFrontmatterSchema,
     [],
@@ -301,6 +315,7 @@ export async function loadHandoffPackage(rootDir: string, relativePath: string) 
 
 export async function loadReviewRecords(rootDir: string) {
   return loadRecordDirectory(
+    rootDir,
     path.join(rootDir, "docs/reviews"),
     reviewFrontmatterSchema,
     reviewSections,
@@ -319,6 +334,7 @@ export async function loadProposalSetRecords(rootDir: string) {
   return Promise.all(
     directoryNames.map((directoryName) =>
       loadSingleRecord(
+        rootDir,
         path.join(proposalsRoot, directoryName, "SET.md"),
         proposalSetFrontmatterSchema,
         proposalSetSections,
@@ -354,6 +370,7 @@ export async function loadProposalDraftRecords(rootDir: string) {
 
     for (const fileName of fileNames) {
       const record = await loadSingleRecord(
+        rootDir,
         path.join(proposalDir, fileName),
         proposalDraftFrontmatterSchema,
         proposalDraftSections,
@@ -415,6 +432,7 @@ export function collectValidationErrors(validation: RepositoryValidation): strin
 }
 
 async function loadRecordDirectory<T>(
+  rootDir: string,
   directoryPath: string,
   schema: ZodType<T>,
   requiredSections: readonly string[],
@@ -430,17 +448,19 @@ async function loadRecordDirectory<T>(
 
   return Promise.all(
     fileNames.map((fileName) =>
-      loadSingleRecord(path.join(directoryPath, fileName), schema, requiredSections),
+      loadSingleRecord(rootDir, path.join(directoryPath, fileName), schema, requiredSections),
     ),
   );
 }
 
 async function loadHandoffDirectory(
+  rootDir: string,
   directoryPath: string,
   type: "plan" | "execution",
   requiredSections: readonly string[],
 ) {
   return loadRecordDirectory(
+    rootDir,
     directoryPath,
     handoffFrontmatterSchema.refine((value) => value.type === type, {
       path: ["type"],
@@ -451,6 +471,7 @@ async function loadHandoffDirectory(
 }
 
 async function loadSingleRecord<T>(
+  rootDir: string,
   filePath: string,
   schema: ZodType<T>,
   requiredSections: readonly string[],
@@ -473,14 +494,14 @@ async function loadSingleRecord<T>(
     );
 
     return {
-      path: path.relative(process.cwd(), filePath),
+      path: path.relative(rootDir, filePath),
       frontmatter: frontmatterResult.success ? frontmatterResult.data : null,
       content: parsed.content,
       errors,
     };
   } catch (error) {
     return {
-      path: path.relative(process.cwd(), filePath),
+      path: path.relative(rootDir, filePath),
       frontmatter: null,
       content: "",
       errors: [error instanceof Error ? error.message : "unknown error"],
@@ -494,6 +515,18 @@ async function exists(targetPath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function readFileOrEmpty(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return "";
+    }
+
+    throw error;
   }
 }
 

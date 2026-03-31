@@ -623,14 +623,14 @@ async function applyProposalMutation(
     try {
       await fs.mkdir(path.dirname(targetPath), { recursive: true });
       await fs.writeFile(targetPath, proposedContent, "utf8");
-      await writeFrontmatterStatus(resolveRecordPath(draft.path), nextStatus);
+      await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
       await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
       await requireCleanRepository(rootDir);
     } catch (error) {
       await restoreTargetArtifact(targetPath, previousContent);
-      await writeFrontmatterStatus(resolveRecordPath(draft.path), previousDraftStatus);
+      await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), previousDraftStatus);
       await writeFrontmatterStatus(
-        resolveRecordPath(proposalSet.path),
+        resolveRecordPath(rootDir, proposalSet.path),
         previousProposalSetStatus,
       );
       throw new Error(
@@ -638,7 +638,7 @@ async function applyProposalMutation(
       );
     }
   } else {
-    await writeFrontmatterStatus(resolveRecordPath(draft.path), nextStatus);
+    await writeFrontmatterStatus(resolveRecordPath(rootDir, draft.path), nextStatus);
     await refreshProposalSetStatus(rootDir, draft.frontmatter.proposal_set_id);
   }
 
@@ -666,7 +666,7 @@ async function refreshProposalSetStatus(rootDir: string, proposalSetId: string):
     .map((record) => record.frontmatter!);
   const status = deriveProposalSetStatus(drafts.map((draft) => draft.status));
 
-  await writeFrontmatterStatus(resolveRecordPath(proposalSet.path), status);
+  await writeFrontmatterStatus(resolveRecordPath(rootDir, proposalSet.path), status);
 }
 
 async function writeProposalSet(
@@ -766,12 +766,12 @@ function requireValidRecord<T>(
   return record as ValidatedRecord<NonNullable<T>> & { frontmatter: NonNullable<T> };
 }
 
-function resolveRecordPath(relativePath: string): string {
-  return path.resolve(process.cwd(), relativePath);
+function resolveRecordPath(rootDir: string, relativePath: string): string {
+  return path.resolve(rootDir, relativePath);
 }
 
 function toRootRelativePath(rootDir: string, relativeToCwdPath: string): string {
-  return path.relative(rootDir, path.resolve(process.cwd(), relativeToCwdPath));
+  return path.relative(rootDir, path.resolve(rootDir, relativeToCwdPath));
 }
 
 async function writeFrontmatterStatus(

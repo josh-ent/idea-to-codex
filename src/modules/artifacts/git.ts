@@ -40,6 +40,21 @@ export async function getRepositoryState(rootDir: string): Promise<RepositorySta
   };
 }
 
+export async function initializeGitRepository(rootDir: string): Promise<void> {
+  if (!(await isGitRepository(rootDir))) {
+    await runGit(rootDir, ["init", "-b", "main"]);
+  }
+
+  await ensureGitIdentity(rootDir);
+  await runGit(rootDir, ["add", "."]);
+
+  const status = await readGitOrNull(rootDir, ["status", "--short"]);
+
+  if (status) {
+    await runGit(rootDir, ["-c", "commit.gpgSign=false", "commit", "-m", "Bootstrap project repository"]);
+  }
+}
+
 async function isGitRepository(rootDir: string): Promise<boolean> {
   const value = await readGitOrNull(rootDir, ["rev-parse", "--is-inside-work-tree"]);
   return value === "true";
@@ -67,5 +82,28 @@ async function readGitOrNull(rootDir: string, args: string[]): Promise<string | 
     return value ? value : null;
   } catch {
     return null;
+  }
+}
+
+async function ensureGitIdentity(rootDir: string): Promise<void> {
+  const userName = await readGitOrNull(rootDir, ["config", "user.name"]);
+  const userEmail = await readGitOrNull(rootDir, ["config", "user.email"]);
+
+  if (!userName) {
+    await runGit(rootDir, ["config", "user.name", "Codex Studio"]);
+  }
+
+  if (!userEmail) {
+    await runGit(rootDir, ["config", "user.email", "studio@local"]);
+  }
+}
+
+async function runGit(rootDir: string, args: string[]): Promise<void> {
+  try {
+    await execFileAsync("git", ["-C", rootDir, ...args]);
+  } catch (error) {
+    throw new Error(
+      `git command failed in ${rootDir}: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
   }
 }

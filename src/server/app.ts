@@ -6,11 +6,18 @@ import { getRepositoryState } from "../modules/artifacts/git.js";
 import {
   bootstrapRepository,
   collectValidationErrors,
+  type RepositoryValidation,
   validateRepository,
 } from "../modules/artifacts/repository.js";
 import { generateReview } from "../modules/governance/review.js";
 import { analyzeRequest } from "../modules/intake/service.js";
 import { generatePackage, refreshPackageSet } from "../modules/packaging/service.js";
+import {
+  createProject,
+  getProjectWorkspace,
+  openProject,
+  type ProjectServiceOptions,
+} from "../modules/projects/service.js";
 import {
   approveProposalDraft,
   generateIntakeProposalSet,
@@ -20,9 +27,9 @@ import {
   rejectProposalDraft,
 } from "../modules/proposals/service.js";
 
-export function createApp(rootDir: string) {
+export function createApp(studioRoot: string, options: ProjectServiceOptions = {}) {
   const app = express();
-  const webDistPath = path.join(rootDir, "web/dist");
+  const webDistPath = path.join(studioRoot, "web/dist");
   const webIndexPath = path.join(webDistPath, "index.html");
 
   app.use(express.json());
@@ -33,9 +40,16 @@ export function createApp(rootDir: string) {
 
   app.get("/api/status", async (_request, response, next) => {
     try {
-      const validation = await validateRepository(rootDir);
-      const repositoryState = await getRepositoryState(rootDir);
+      const workspace = await getProjectWorkspace(studioRoot, options);
+      const projectRoot = workspace.active_project?.path;
+      const validation = projectRoot
+        ? await validateRepository(projectRoot)
+        : emptyRepositoryValidation();
+      const repositoryState = projectRoot
+        ? await getRepositoryState(projectRoot)
+        : unavailableRepositoryState();
       response.json({
+        project: workspace,
         validation,
         repository_state: repositoryState,
         errors: collectValidationErrors(validation),
@@ -45,10 +59,42 @@ export function createApp(rootDir: string) {
     }
   });
 
+  app.post("/api/projects/create", async (request, response, next) => {
+    try {
+      response.status(201).json(
+        await createProject(
+          studioRoot,
+          {
+            project_name:
+              typeof request.body?.project_name === "string" ? request.body.project_name : "",
+            project_path:
+              typeof request.body?.project_path === "string" ? request.body.project_path : "",
+            initialize_git: request.body?.initialize_git !== false,
+          },
+          options,
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/projects/open", async (request, response, next) => {
+    try {
+      const projectPath =
+        typeof request.body?.project_path === "string" ? request.body.project_path : "";
+
+      response.status(200).json(await openProject(studioRoot, projectPath, options));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/bootstrap", async (_request, response, next) => {
     try {
-      const created = await bootstrapRepository(rootDir);
-      const validation = await validateRepository(rootDir);
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      const created = await bootstrapRepository(projectRoot);
+      const validation = await validateRepository(projectRoot);
       response.status(201).json({
         created,
         validation,
@@ -68,9 +114,10 @@ export function createApp(rootDir: string) {
     }
 
     try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(201).json(
         await generatePackage(
-          rootDir,
+          projectRoot,
           request.params.type as "plan" | "execution",
           request.params.trancheId,
           request.body?.persist !== false,
@@ -83,9 +130,10 @@ export function createApp(rootDir: string) {
 
   app.post("/api/package-sets/:trancheId/refresh", async (request, response, next) => {
     try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(201).json(
         await refreshPackageSet(
-          rootDir,
+          projectRoot,
           request.params.trancheId,
           request.body?.persist !== false,
         ),
@@ -97,9 +145,10 @@ export function createApp(rootDir: string) {
 
   app.post("/api/reviews/:trancheId", async (request, response, next) => {
     try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(201).json(
         await generateReview(
-          rootDir,
+          projectRoot,
           request.params.trancheId,
           request.body?.persist !== false,
         ),
@@ -122,7 +171,8 @@ export function createApp(rootDir: string) {
 
   app.get("/api/proposals", async (_request, response, next) => {
     try {
-      response.status(200).json(await listProposalSets(rootDir));
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(await listProposalSets(projectRoot));
     } catch (error) {
       next(error);
     }
@@ -130,7 +180,8 @@ export function createApp(rootDir: string) {
 
   app.get("/api/proposals/:proposalSetId", async (request, response, next) => {
     try {
-      response.status(200).json(await getProposalSet(rootDir, request.params.proposalSetId));
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(await getProposalSet(projectRoot, request.params.proposalSetId));
     } catch (error) {
       next(error);
     }
@@ -149,8 +200,9 @@ export function createApp(rootDir: string) {
             )
           : {};
 
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(201).json(
-        await generateIntakeProposalSet(rootDir, requestText, answers as Record<string, string>),
+        await generateIntakeProposalSet(projectRoot, requestText, answers as Record<string, string>),
       );
     } catch (error) {
       next(error);
@@ -159,7 +211,8 @@ export function createApp(rootDir: string) {
 
   app.post("/api/proposals/review/:trancheId", async (request, response, next) => {
     try {
-      response.status(201).json(await generateReviewProposalSet(rootDir, request.params.trancheId));
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(201).json(await generateReviewProposalSet(projectRoot, request.params.trancheId));
     } catch (error) {
       next(error);
     }
@@ -167,7 +220,8 @@ export function createApp(rootDir: string) {
 
   app.post("/api/proposals/:proposalId/approve", async (request, response, next) => {
     try {
-      response.status(200).json(await approveProposalDraft(rootDir, request.params.proposalId));
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(await approveProposalDraft(projectRoot, request.params.proposalId));
     } catch (error) {
       next(error);
     }
@@ -175,7 +229,8 @@ export function createApp(rootDir: string) {
 
   app.post("/api/proposals/:proposalId/reject", async (request, response, next) => {
     try {
-      response.status(200).json(await rejectProposalDraft(rootDir, request.params.proposalId));
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(await rejectProposalDraft(projectRoot, request.params.proposalId));
     } catch (error) {
       next(error);
     }
@@ -203,4 +258,49 @@ export function createApp(rootDir: string) {
   );
 
   return app;
+}
+
+async function requireActiveProjectRoot(
+  studioRoot: string,
+  options: ProjectServiceOptions,
+): Promise<string> {
+  const workspace = await getProjectWorkspace(studioRoot, options);
+
+  if (!workspace.active_project) {
+    throw new Error("No active project selected.");
+  }
+
+  return workspace.active_project.path;
+}
+
+function emptyRepositoryValidation(): RepositoryValidation {
+  return {
+    rootFiles: [],
+    directories: [],
+    decisions: [],
+    proposalSets: [],
+    proposalDrafts: [],
+    tranches: [],
+    reviews: [],
+    planPackages: [],
+    executionPackages: [],
+    planTemplate: { path: "prompts/templates/plan-package.md", frontmatter: null, content: "", errors: [] },
+    executionTemplate: { path: "prompts/templates/execution-package.md", frontmatter: null, content: "", errors: [] },
+    assumptions: [],
+    glossaryTerms: [],
+    openQuestions: [],
+    globalErrors: [],
+    traceLinks: [],
+  };
+}
+
+function unavailableRepositoryState() {
+  return {
+    available: false,
+    branch: null,
+    head: null,
+    dirty_paths: [],
+    is_dirty: false,
+    is_main_branch: false,
+  };
 }
