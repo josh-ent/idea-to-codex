@@ -2,6 +2,7 @@ import { computed, ref, type Ref } from "vue";
 import { defineStore } from "pinia";
 import {
   type CreateProjectPayload,
+  type DirectorySelectionPayload,
   getJson,
   type OpenProjectPayload,
   postJson,
@@ -46,6 +47,7 @@ export const useConsoleStore = defineStore("console", () => {
   const lastError = ref<string>("");
   const isCreatingProject = ref(false);
   const isOpeningProject = ref(false);
+  const isSelectingProjectPath = ref(false);
 
   async function loadStatus(options: { clearError?: boolean } = {}) {
     isLoading.value = true;
@@ -164,6 +166,34 @@ export const useConsoleStore = defineStore("console", () => {
         project_path: existingProjectPath.value,
       });
       await refreshAfterProjectSwitch();
+    });
+  }
+
+  async function selectProjectDirectory(
+    target: "new" | "existing",
+    dialogTitle: string,
+  ) {
+    await runTask(isSelectingProjectPath, "directory selection failed", async () => {
+      const initialPath =
+        target === "new" ? newProjectPath.value : existingProjectPath.value;
+      const payload = await postJson<DirectorySelectionPayload>(
+        "/api/projects/select-directory",
+        {
+          initial_path: initialPath,
+          dialog_title: dialogTitle,
+        },
+      );
+
+      if (!payload.path) {
+        return;
+      }
+
+      if (target === "new") {
+        newProjectPath.value = payload.path;
+        return;
+      }
+
+      existingProjectPath.value = payload.path;
     });
   }
 
@@ -474,6 +504,7 @@ export const useConsoleStore = defineStore("console", () => {
     lastError,
     isCreatingProject,
     isOpeningProject,
+    isSelectingProjectPath,
     trancheOptions,
     blockingQuestions,
     hasUnansweredBlockingQuestions,
@@ -485,6 +516,7 @@ export const useConsoleStore = defineStore("console", () => {
     loadProposalSet,
     createManagedProject,
     openManagedProject,
+    selectProjectDirectory,
     generateSelectedPackage,
     generatePackageFor,
     refreshSelectedPackageSet,

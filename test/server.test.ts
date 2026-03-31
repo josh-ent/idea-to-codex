@@ -8,6 +8,7 @@ import {
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
+import type { ProjectServiceOptions } from "../src/modules/projects/service.js";
 
 const repos: FixtureRepo[] = [];
 
@@ -27,9 +28,10 @@ function createManagedProjectApp(repo: FixtureRepo) {
   });
 }
 
-function createWorkspaceApp(repo: FixtureRepo) {
+function createWorkspaceApp(repo: FixtureRepo, overrides: ProjectServiceOptions = {}) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
+    ...overrides,
   });
 }
 
@@ -170,6 +172,34 @@ describe("server routes", () => {
     const statusResponse = await request(app).get("/api/status");
     expect(statusResponse.body.project.active_project.path).toBe(managed.rootDir);
     expect(statusResponse.body.validation.tranches.length).toBeGreaterThan(0);
+  });
+
+  it("selects a project directory through the api", async () => {
+    const repo = track(await createFixtureRepo());
+    const selectedPath = path.join(repo.rootDir, "managed-projects", "billing-console");
+    const app = createWorkspaceApp(repo, {
+      selectDirectory: async () => selectedPath,
+    });
+
+    const response = await request(app).post("/api/projects/select-directory").send({
+      initial_path: "managed-projects",
+      dialog_title: "Select project folder",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe(selectedPath);
+  });
+
+  it("returns a null path when project directory selection is cancelled", async () => {
+    const repo = track(await createFixtureRepo());
+    const app = createWorkspaceApp(repo, {
+      selectDirectory: async () => null,
+    });
+
+    const response = await request(app).post("/api/projects/select-directory").send({});
+
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBeNull();
   });
 
   it("returns the empty/default intake analysis for missing or non-string request bodies", async () => {

@@ -57,6 +57,10 @@ export interface CreateProjectPayload extends ProjectWorkspacePayload {}
 
 export interface OpenProjectPayload extends ProjectWorkspacePayload {}
 
+export interface DirectorySelectionPayload {
+  path: string | null;
+}
+
 export interface PackagePayload {
   id: string;
   relativePath: string;
@@ -173,7 +177,9 @@ export async function postJson<T>(
   const payload = (await response.json()) as T | { error?: string; errors?: string[] };
 
   if (!response.ok) {
-    throw new Error(readApiError(payload, response.status));
+    throw new Error(
+      readApiError(payload as { error?: string; errors?: string[] }, response.status),
+    );
   }
 
   return payload as T;
@@ -184,7 +190,9 @@ export async function getJson<T>(path: string): Promise<T> {
   const payload = (await response.json()) as T | { error?: string; errors?: string[] };
 
   if (!response.ok) {
-    throw new Error(readApiError(payload, response.status));
+    throw new Error(
+      readApiError(payload as { error?: string; errors?: string[] }, response.status),
+    );
   }
 
   return payload as T;

@@ -17,6 +17,7 @@ import {
   getProjectWorkspace,
   openProject,
   type ProjectServiceOptions,
+  selectProjectDirectory,
 } from "../modules/projects/service.js";
 import {
   approveProposalDraft,
@@ -85,6 +86,25 @@ export function createApp(studioRoot: string, options: ProjectServiceOptions = {
         typeof request.body?.project_path === "string" ? request.body.project_path : "";
 
       response.status(200).json(await openProject(studioRoot, projectPath, options));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/projects/select-directory", async (request, response, next) => {
+    try {
+      response.status(200).json({
+        path: await selectProjectDirectory(
+          studioRoot,
+          {
+            initial_path:
+              typeof request.body?.initial_path === "string" ? request.body.initial_path : "",
+            dialog_title:
+              typeof request.body?.dialog_title === "string" ? request.body.dialog_title : "",
+          },
+          options,
+        ),
+      });
     } catch (error) {
       next(error);
     }

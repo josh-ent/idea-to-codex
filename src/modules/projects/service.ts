@@ -1,9 +1,13 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { bootstrapRepository, validateRepository } from "../artifacts/repository.js";
 import { getRepositoryState, initializeGitRepository } from "../artifacts/git.js";
+
+const execFileAsync = promisify(execFile);
 
 interface WorkspaceState {
   active_project_path: string | null;
@@ -31,6 +35,12 @@ export interface CreateProjectInput {
 export interface ProjectServiceOptions {
   fallbackActiveProjectRoot?: string;
   stateDir?: string;
+  selectDirectory?: (input: SelectDirectoryInput) => Promise<string | null>;
+}
+
+export interface SelectDirectoryInput {
+  initial_path?: string;
+  dialog_title?: string;
 }
 
 export async function getProjectWorkspace(
@@ -123,6 +133,26 @@ export async function openProject(
   await persistWorkspaceProject(studioRoot, resolvedProjectPath, options);
 
   return getProjectWorkspace(studioRoot, options);
+}
+
+export async function selectProjectDirectory(
+  studioRoot: string,
+  input: SelectDirectoryInput,
+  options: ProjectServiceOptions = {},
+): Promise<string | null> {
+  const initialPath = resolveInitialDirectory(studioRoot, input.initial_path);
+
+  if (options.selectDirectory) {
+    return options.selectDirectory({
+      initial_path: initialPath,
+      dialog_title: input.dialog_title,
+    });
+  }
+
+  return openNativeDirectoryDialog({
+    initial_path: initialPath,
+    dialog_title: input.dialog_title ?? "Select project folder",
+  });
 }
 
 function normalizeActiveProjectPath(
@@ -224,6 +254,15 @@ function resolveProjectPath(studioRoot: string, projectPath: string): string {
   return path.resolve(studioRoot, projectPath);
 }
 
+function resolveInitialDirectory(studioRoot: string, projectPath?: string): string | undefined {
+  if (!projectPath?.trim()) {
+    return studioRoot;
+  }
+
+  const resolvedPath = resolveProjectPath(studioRoot, projectPath);
+  return resolvedPath;
+}
+
 async function toProjectSummary(
   projectPath: string,
   isActive: boolean,
@@ -251,4 +290,144 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function openNativeDirectoryDialog(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): Promise<string | null> {
+  if (process.platform === "darwin") {
+    return selectDirectoryWithAppleScript(input);
+  }
+
+  if (process.platform === "win32") {
+    return selectDirectoryWithPowerShell(input);
+  }
+
+  return selectDirectoryWithZenity(input);
+}
+
+async function selectDirectoryWithZenity(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): Promise<string | null> {
+  const args = ["--file-selection", "--directory", "--title", input.dialog_title];
+
+  if (input.initial_path) {
+    args.push("--filename", ensureTrailingSeparator(input.initial_path));
+  }
+
+  try {
+    const { stdout } = await execFileAsync("zenity", args);
+    return normalizeSelectedDirectory(stdout);
+  } catch (error) {
+    if (isDialogCancelled(error)) {
+      return null;
+    }
+
+    throw new Error("directory selection dialog failed");
+  }
+}
+
+async function selectDirectoryWithAppleScript(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): Promise<string | null> {
+  const args = ["-e", appleScriptForDirectorySelection(input)];
+
+  try {
+    const { stdout } = await execFileAsync("osascript", args);
+    return normalizeSelectedDirectory(stdout);
+  } catch (error) {
+    if (isDialogCancelled(error)) {
+      return null;
+    }
+
+    throw new Error("directory selection dialog failed");
+  }
+}
+
+async function selectDirectoryWithPowerShell(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): Promise<string | null> {
+  const command = powerShellForDirectorySelection(input);
+
+  try {
+    const { stdout } = await execFileAsync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      command,
+    ]);
+    return normalizeSelectedDirectory(stdout);
+  } catch (error) {
+    if (isDialogCancelled(error)) {
+      return null;
+    }
+
+    throw new Error("directory selection dialog failed");
+  }
+}
+
+function normalizeSelectedDirectory(stdout: string): string | null {
+  const selectedPath = stdout.trim();
+  return selectedPath ? selectedPath : null;
+}
+
+function isDialogCancelled(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException & { code?: string | number }).code;
+  return String(code) === "1";
+}
+
+function ensureTrailingSeparator(targetPath: string): string {
+  return targetPath.endsWith(path.sep) ? targetPath : `${targetPath}${path.sep}`;
+}
+
+function escapeAppleScriptString(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+}
+
+function escapePowerShellString(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function appleScriptForDirectorySelection(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): string {
+  const prompt = escapeAppleScriptString(input.dialog_title);
+  const initialLocation = input.initial_path
+    ? ` default location POSIX file "${escapeAppleScriptString(input.initial_path)}"`
+    : "";
+
+  return `try
+set selectedFolder to choose folder with prompt "${prompt}"${initialLocation}
+POSIX path of selectedFolder
+on error number -128
+return ""
+end try`;
+}
+
+function powerShellForDirectorySelection(input: {
+  initial_path?: string;
+  dialog_title: string;
+}): string {
+  const description = escapePowerShellString(input.dialog_title);
+  const selectedPath = input.initial_path
+    ? escapePowerShellString(input.initial_path)
+    : "";
+
+  return [
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+    `$dialog.Description = '${description}'`,
+    "$dialog.UseDescriptionForTitle = $true",
+    selectedPath ? `$dialog.SelectedPath = '${selectedPath}'` : "",
+    "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {",
+    "  Write-Output $dialog.SelectedPath",
+    "}",
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
