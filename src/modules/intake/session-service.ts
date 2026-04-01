@@ -1023,6 +1023,14 @@ function reconcileQuestions(
   for (const rawDirective of directives) {
     const directive = normalizeDirective(rawDirective);
 
+    if (directive.action === "create_new" && directive.existing_question_id) {
+      throw new IntakeError(
+        "intake_question_mapping_invalid",
+        "create_new directives must not include existing_question_id.",
+        { retryable: false },
+      );
+    }
+
     if (directive.existing_question_id) {
       if (touchedQuestionIds.has(directive.existing_question_id)) {
         throw new IntakeError(
@@ -1112,9 +1120,13 @@ function reconcileQuestions(
       );
     }
 
-    const replacement = createQuestion(turnId, displayOrder++, directive, existing.answer_text);
+    const answerText = questionAnswers[existing.id] ?? existing.answer_text;
+    const answerUpdatedAt = answerText?.trim() ? new Date().toISOString() : null;
+    const replacement = createQuestion(turnId, displayOrder++, directive, answerText);
     previous_questions.push({
       ...existing,
+      answer_text: answerText,
+      answer_updated_at: answerUpdatedAt,
       status: "superseded",
       superseded_by_question_id: replacement.id,
       updated_at: new Date().toISOString(),

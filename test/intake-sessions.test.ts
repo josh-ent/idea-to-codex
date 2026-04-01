@@ -205,6 +205,162 @@ describe("intake sessions", () => {
     } satisfies Partial<IntakeError>);
   });
 
+  it("rejects create_new directives that include existing_question_id", async () => {
+    const repo = track(await createFixtureRepo());
+    const client = createStubIntakeSessionClient((input) => {
+      const priorQuestionId = String(input.current_questions_json[0]?.id ?? "");
+
+      if (input.phase === "initial") {
+        return {
+          brief_entries: [
+            {
+              entry_type: "problem_statement",
+              text: "Clarify the operator brief.",
+              provenance_type: "operator_provided",
+              label: "Operator request",
+            },
+          ],
+          question_directives: [
+            {
+              action: "create_new",
+              prompt: "Which operator role is primary?",
+              rationale_markdown: "Role clarity improves the brief.",
+              importance: "medium",
+              tags: ["stakeholders"],
+            },
+          ],
+        };
+      }
+
+      return {
+        brief_entries: [
+          {
+            entry_type: "recommendations",
+            text: "Proceed with the updated brief.",
+            provenance_type: "llm_inferred",
+            label: "Continuation synthesis",
+          },
+        ],
+        question_directives: [
+          {
+            action: "create_new",
+            existing_question_id: priorQuestionId,
+            prompt: "What escalation path owns the operator handoff?",
+            rationale_markdown: "Escalation ownership changes the brief.",
+            importance: "medium",
+            tags: ["stakeholders"],
+          },
+        ],
+      };
+    });
+
+    const created = await startIntakeSession(repo.rootDir, "Clarify the operator brief.", {
+      ...sessionOptions(repo),
+      client,
+    });
+
+    await expect(
+      continueIntakeSession(
+        repo.rootDir,
+        created.session.id,
+        created.session_revision,
+        {},
+        "Continue with an invalid create_new mapping.",
+        {
+          ...sessionOptions(repo),
+          client,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "intake_question_mapping_invalid",
+      message: "create_new directives must not include existing_question_id.",
+    } satisfies Partial<IntakeError>);
+  });
+
+  it("carries same-turn submitted answers into superseding questions", async () => {
+    const repo = track(await createFixtureRepo());
+    const client = createStubIntakeSessionClient((input) => {
+      const priorQuestionId = String(input.current_questions_json[0]?.id ?? "");
+
+      if (input.phase === "initial") {
+        return {
+          brief_entries: [
+            {
+              entry_type: "problem_statement",
+              text: "Clarify the release workflow brief.",
+              provenance_type: "operator_provided",
+              label: "Operator request",
+            },
+          ],
+          question_directives: [
+            {
+              action: "create_new",
+              prompt: "Who owns the release workflow today?",
+              rationale_markdown: "We need the primary owner.",
+              importance: "high",
+              tags: ["stakeholders"],
+            },
+          ],
+        };
+      }
+
+      return {
+        brief_entries: [
+          {
+            entry_type: "elevator_pitch",
+            text: "Improve the release workflow for the named owner.",
+            provenance_type: "llm_inferred",
+            label: "Refined brief",
+          },
+        ],
+        question_directives: [
+          {
+            action: "supersede_existing",
+            existing_question_id: priorQuestionId,
+            prompt: "Who owns the release workflow and its escalation path?",
+            rationale_markdown: "The brief now needs owner and escalation context.",
+            importance: "high",
+            tags: ["stakeholders", "risks"],
+          },
+        ],
+      };
+    });
+
+    const created = await startIntakeSession(repo.rootDir, "Clarify the release workflow brief.", {
+      ...sessionOptions(repo),
+      client,
+    });
+    const priorQuestion = created.questions[0];
+
+    const continued = await continueIntakeSession(
+      repo.rootDir,
+      created.session.id,
+      created.session_revision,
+      { [priorQuestion!.id]: "Release managers" },
+      "Refine the owner question.",
+      {
+        ...sessionOptions(repo),
+        client,
+      },
+    );
+
+    const supersededQuestion = continued.questions.find((question) => question.id === priorQuestion?.id);
+    const replacementQuestion = continued.questions.find((question) => question.id !== priorQuestion?.id);
+
+    expect(supersededQuestion?.status).toBe("superseded");
+    expect(supersededQuestion?.answer_text).toBe("Release managers");
+    expect(replacementQuestion?.status).toBe("answered");
+    expect(replacementQuestion?.answer_text).toBe("Release managers");
+    expect(
+      continued.question_lineage_summary.some(
+        (entry) =>
+          entry.from_question_id === priorQuestion?.id
+          && entry.to_question_id === replacementQuestion?.id
+          && entry.relation_type === "superseded_by",
+      ),
+    ).toBe(true);
+  });
+
   it("marks unanswered live questions as accepted_without_answer on finalization", async () => {
     const repo = track(await createFixtureRepo());
     const client = createSequenceIntakeSessionClient([

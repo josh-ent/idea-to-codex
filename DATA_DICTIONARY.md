@@ -86,6 +86,7 @@
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | Stable question identifier such as `Q-001`. |
+| `display_id` | string | Presentation-only question label used in the intake UI. |
 | `type` | string | Why the question exists. |
 | `blocking` | boolean | Whether work can proceed safely without an answer. |
 | `default_recommendation` | string | Low-regret default if the question is left unanswered. |
@@ -93,3 +94,4 @@
 | `affected_artifacts` | string[] | Artefacts likely to change based on the answer. |
 | `status` | enum | `open`, `resolved`, or `deferred`. |
 | `prompt` | string | The exact question shown to the operator. |
+| `tags` | enum[] | Intake question tags are bounded to `scope`, `constraints`, `stakeholders`, `risks`, `assumptions`, `outcomes`, `operating_context`, `uncertainties`, `research`, and `recommendations`. |

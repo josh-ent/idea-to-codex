@@ -46,6 +46,13 @@ The first release should prove one thin end-to-end governance loop, not build a 
 - The next meaningful gap is review-history and triage ergonomics now that the main review actions are exposed directly in the console.
 - `PROJECT_AIMS.md` remains the mission-level anchor and must not be duplicated by later docs or UI state.
 
+### Current accepted intake hardening decisions
+
+- Intake-session cutover is unconditional; `intake_sessions_v1` is removed.
+- Current intake read and mutation routes use one generic `IntakeSessionPayload` response shape.
+- Intake research is reduced-truth only; research provenance is validated when present, but live intake research is not an implemented capability.
+- `display_id` and bounded intake question tags are accepted backend-owned hardening.
+
 ## 4. Product Doctrine
 
 ### Repository truth over chat memory

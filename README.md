@@ -72,10 +72,14 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 ## Intake sessions
 
 - The operator console now runs intake as an iterative, model-backed `Intake Session`.
+- The intake-session cutover is unconditional; `intake_sessions_v1` has been removed and there is one intake path only.
 - Intake session prompt assets live under `prompts/intake/session/`; the backend-owned schema and contracts in `src/modules/intake/session-contract.ts` remain the authoritative output definition.
 - The hosted ChatGPT/OpenAI lane synthesizes the brief and proposes question reconciliation directives; the backend remains authoritative for session lifecycle, question identity, answer carry-forward, lineage, persistence, and concurrency handling.
+- `POST /api/intake/sessions`, `GET /api/intake/active`, `GET /api/intake/sessions/:id`, `POST /api/intake/sessions/:id/continue`, `POST /api/intake/sessions/:id/finalize`, and `POST /api/intake/sessions/:id/abandon` all return the generic `IntakeSessionPayload`.
 - The durable output of intake is a structured `Intake Brief`, not a proposal draft and not repository truth.
 - `Provenance Entry` records remain the authoritative source for why a brief entry or question version exists; UI provenance summaries are derived from those records.
+- Intake uses reduced-truth research semantics only: the backend validates research provenance metadata when present, but intake does not implement a live research capability.
+- `display_id` and bounded intake question tags are accepted hardening in the intake contract and remain backend-owned.
 - OpenAI intake calls are audited per canonical project root with token usage records in the `Studio Persistence Store`.
 - The usage audit shape is provider-based and already reserves `codex` as a separate accounting provider for future in-product Codex lanes.
 - Proposal generation from the new intake-session workflow is intentionally unavailable until the later proposal redesign tranche lands.

@@ -120,7 +120,16 @@ export const intakeSessionQuestionDirectiveSchema = z
     importance: importanceSchema.optional(),
     tags: z.array(questionTagSchema).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.action === "create_new" && value.existing_question_id) {
+      context.addIssue({
+        code: "custom",
+        message: "create_new directives must not include existing_question_id.",
+        path: ["existing_question_id"],
+      });
+    }
+  });
 
 export const intakeSessionOutputSchema = z
   .object({
@@ -295,6 +304,16 @@ export interface IntakeSessionDetail {
   question_lineage_summary: IntakeQuestionLineage[];
 }
 
+/**
+ * Explicit API truth for current intake routes.
+ * `POST /api/intake/sessions`
+ * `GET /api/intake/active`
+ * `GET /api/intake/sessions/:id`
+ * `POST /api/intake/sessions/:id/continue`
+ * `POST /api/intake/sessions/:id/finalize`
+ * `POST /api/intake/sessions/:id/abandon`
+ * all return this payload shape.
+ */
 export interface IntakeSessionPayload extends IntakeSessionDetail {
   session_revision: number;
 }

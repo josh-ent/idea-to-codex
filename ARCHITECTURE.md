@@ -11,6 +11,7 @@ This document describes the current system structure.
 ## Current implementation shape
 
 - A Node backend owns managed-project selection, file-backed bootstrap, validation, intake-session orchestration, review checkpoint generation, traceability, and package assembly.
+- Intake-session cutover is unconditional in the current product surface; there is no legacy deterministic-intake flag path.
 - The backend also owns logging ingestion, the SQLite-backed `Studio Persistence Store`, and log query APIs.
 - The backend also owns project-scoped `LLM Usage Record` auditing for model calls made inside the product.
 - Repository artefacts remain canonical; the backend reads and writes them directly.
@@ -24,6 +25,7 @@ This document describes the current system structure.
 - `artifacts`: repository paths, baseline templates, markdown record loading, and durable writes.
 - `governance`: drift signals, review triggers, review checkpoint generation, and placeholder detection for `Actor` / `Use Case` workflow critique.
 - `intake`: intake-session contracts, prompt assets, session lifecycle, reconciliation, provenance, and durable `Intake Brief` state.
+- `intake`: the backend-owned intake contract also includes presentation-only `display_id`, bounded question tags, and reduced-truth research semantics.
 - `llm`: the small OpenAI structured-output adapter used by intake sessions and other hosted reasoning calls.
 - `llm`: the small provider boundary for model calls and project-scoped usage auditing.
 - `packaging`: plan and execution package assembly from validated repo truth.
@@ -40,6 +42,7 @@ This document describes the current system structure.
 - Decision, tranche, review, proposal, and handoff records use Markdown with YAML front matter.
 - Prompt templates define the stable package structure that generated handoffs must follow.
 - Intake session prompt assets live under `prompts/intake/session/` and are loaded by the backend at runtime; the application code owns lifecycle, reconciliation, and validation rather than embedded prompt prose.
+- The current intake routes use one generic `IntakeSessionPayload` response contract rather than per-mutation payload variants.
 - The `Studio Persistence Store` is used for durable Studio metadata such as `Log Event`, `LLM Usage Record`, `Intake Session`, `Intake Brief`, and related provenance records. It is not a project-truth store.
 
 ## Canonical loop

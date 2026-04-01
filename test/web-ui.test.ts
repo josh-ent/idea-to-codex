@@ -138,8 +138,10 @@ function buildSessionPayload(options: {
       session_revision: sessionRevision,
       created_at: "2026-03-31T09:59:00.000Z",
       updated_at: "2026-03-31T10:00:00.000Z",
-      finalized_at: null,
-      abandoned_at: null,
+      finalized_at:
+        options.status === "finalized" ? "2026-03-31T10:05:00.000Z" : null,
+      abandoned_at:
+        options.status === "abandoned" ? "2026-03-31T10:05:00.000Z" : null,
     },
     request_text: "Clarify the current intake brief.",
     current_brief: {
@@ -334,6 +336,51 @@ describe("console ui", () => {
     expect(textareas[2]?.attributes("disabled")).toBeDefined();
     expect(textareas.some((area) => area.attributes("disabled") !== undefined)).toBe(true);
   });
+
+  it.each(["finalized", "abandoned"] as const)(
+    "retains and renders %s sessions through workspace refresh",
+    async (status) => {
+      const store = useConsoleStore();
+      store.status = buildStatusPayload();
+      store.intakeSession = buildSessionPayload({ status });
+
+      getJsonMock.mockImplementation(async (path: string) => {
+        if (path === "/api/status") {
+          return buildStatusPayload();
+        }
+
+        if (path === "/api/proposals") {
+          return [];
+        }
+
+        if (path === "/api/intake/active") {
+          return null;
+        }
+
+        if (path === "/api/intake/sessions/INTAKE-001") {
+          return buildSessionPayload({ status });
+        }
+
+        throw new Error(`Unexpected GET ${path}`);
+      });
+
+      await store.refreshWorkspace();
+
+      expect(getJsonMock).toHaveBeenCalledWith("/api/intake/active");
+      expect(getJsonMock).toHaveBeenCalledWith("/api/intake/sessions/INTAKE-001");
+      expect(store.intakeSession?.session.status).toBe(status);
+
+      const wrapper = mountIntakeSection();
+      const buttons = Object.fromEntries(
+        wrapper.findAll("button").map((button) => [button.text(), button]),
+      );
+
+      expect(wrapper.text()).toContain("This session is terminal.");
+      expect(buttons["Continue intake"]?.attributes("disabled")).toBeDefined();
+      expect(buttons["Finalise intake"]?.attributes("disabled")).toBeDefined();
+      expect(buttons["Abandon"]?.attributes("disabled")).toBeDefined();
+    },
+  );
 
   it("renders the active-project token metrics in the left rail", async () => {
     const store = useConsoleStore();

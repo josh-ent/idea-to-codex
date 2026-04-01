@@ -292,12 +292,39 @@ export const useConsoleStore = defineStore("console", () => {
 
     try {
       const session = await getJson<IntakeSessionPayload | null>("/api/intake/active");
-      intakeSession.value = session;
-      intakeQuestionAnswers.value = readQuestionAnswers(session);
-      if (!session) {
-        intakeOperatorNotes.value = "";
-        intakeFinalizeNote.value = "";
+
+      if (session) {
+        intakeSession.value = session;
+        intakeQuestionAnswers.value = readQuestionAnswers(session);
+        return;
       }
+
+      const retainedSessionId = shouldRetainTerminalIntakeSession(intakeSession.value)
+        ? intakeSession.value?.session.id ?? ""
+        : "";
+
+      if (retainedSessionId) {
+        try {
+          const retainedSession = await getJson<IntakeSessionPayload>(
+            `/api/intake/sessions/${retainedSessionId}`,
+          );
+          intakeSession.value = retainedSession;
+          intakeQuestionAnswers.value = readQuestionAnswers(retainedSession);
+          return;
+        } catch (error) {
+          if (
+            error instanceof ApiError
+            && error.errorCode === "intake_session_not_found"
+          ) {
+            resetIntakeState();
+            return;
+          }
+
+          throw error;
+        }
+      }
+
+      resetIntakeState();
     } catch (error) {
       setTaskError(error, "intake session request failed");
     } finally {
@@ -480,6 +507,13 @@ export const useConsoleStore = defineStore("console", () => {
     return Object.fromEntries(
       session.questions.map((question) => [question.id, question.answer_text ?? ""]),
     );
+  }
+
+  function shouldRetainTerminalIntakeSession(
+    session: IntakeSessionPayload | null,
+  ): boolean {
+    const status = session?.session.status;
+    return status === "finalized" || status === "abandoned";
   }
 
   function setTaskError(error: unknown, fallbackMessage: string) {
