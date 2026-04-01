@@ -4,12 +4,13 @@ import path from "node:path";
 
 import { createApp, type ServerAppOptions } from "../src/server/app.js";
 import {
+  buildProposalDraftRecord,
+  buildProposalSetRecord,
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
 import { recordLlmUsage } from "../src/runtime/logging.js";
-import { createStubIntakeClient } from "./helpers/intake-stub.js";
 import { createStubIntakeSessionClient } from "./helpers/intake-session-stub.js";
 
 const repos: FixtureRepo[] = [];
@@ -27,7 +28,6 @@ function createManagedProjectApp(repo: FixtureRepo) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
     fallbackActiveProjectRoot: repo.rootDir,
-    intakeClient: createStubIntakeClient(),
     intakeSessionClient: createStubIntakeSessionClient(),
   });
 }
@@ -35,7 +35,6 @@ function createManagedProjectApp(repo: FixtureRepo) {
 function createWorkspaceApp(repo: FixtureRepo, overrides: ServerAppOptions = {}) {
   return createApp(repo.rootDir, {
     stateDir: path.join(repo.rootDir, ".test-state"),
-    intakeClient: createStubIntakeClient(),
     intakeSessionClient: createStubIntakeSessionClient(),
     ...overrides,
   });
@@ -299,27 +298,21 @@ describe("server routes", () => {
     const app = createWorkspaceApp(repo, {
       fallbackActiveProjectRoot: repo.rootDir,
       intakeSessionClient: createStubIntakeSessionClient((input) => {
-        const priorQuestionId = /ID: (QUESTION-[^\n]+)/.exec(input.current_questions_markdown)?.[1];
+        const priorQuestionId = String(input.current_questions_json[0]?.id ?? "");
 
         if (input.phase === "initial") {
           return {
             brief_entries: [
               {
                 entry_type: "problem_statement",
-                rendered_markdown: "Tighten the release brief.",
-                value_text: "Tighten the release brief.",
-                provenance: [
-                  {
-                    provenance_type: "operator_provided",
-                    label: "Operator request",
-                    detail_json: {},
-                  },
-                ],
+                text: "Tighten the release brief.",
+                provenance_type: "operator_provided",
+                label: "Operator request",
               },
             ],
             question_directives: [
               {
-                directive: "create_new",
+                action: "create_new",
                 prompt: "Who is the primary operator for this release workflow?",
                 rationale_markdown: "Actor clarity changes the brief.",
                 importance: "high",
@@ -334,49 +327,47 @@ describe("server routes", () => {
             brief_entries: [
               {
                 entry_type: "elevator_pitch",
-                rendered_markdown: "Refine the release workflow for the primary operator.",
-                value_text: "Refine the release workflow for the primary operator.",
-                provenance: [
-                  {
-                    provenance_type: "llm_inferred",
-                    label: "Refined brief",
-                    detail_json: {},
-                  },
-                ],
+                text: "Refine the release workflow for the primary operator.",
+                provenance_type: "llm_inferred",
+                label: "Refined brief",
               },
             ],
             question_directives: priorQuestionId
               ? [
                   {
-                    directive: "retain_existing",
-                    prior_question_id: priorQuestionId,
+                    action: "retain_existing",
+                    existing_question_id: priorQuestionId,
                     prompt: "Who is the primary operator for this release workflow?",
                     rationale_markdown: "Still needed for the brief.",
                     importance: "high",
                     tags: ["stakeholders"],
-                    carry_forward_answer: true,
                   },
                 ]
               : [],
           };
         }
 
+        const finalQuestionId = String(input.current_questions_json[0]?.id ?? "");
+
         return {
           brief_entries: [
             {
               entry_type: "recommendations",
-              rendered_markdown: "Proceed with the clarified operator-facing workflow brief.",
-              value_text: "Proceed with the clarified operator-facing workflow brief.",
-              provenance: [
-                {
-                  provenance_type: "llm_inferred",
-                  label: "Final recommendation",
-                  detail_json: {},
-                },
-              ],
+              text: "Proceed with the clarified operator-facing workflow brief.",
+              provenance_type: "llm_inferred",
+              label: "Final recommendation",
             },
           ],
-          question_directives: [],
+          question_directives: [
+            {
+              action: "retain_existing",
+              existing_question_id: finalQuestionId,
+              prompt: "Who is the primary operator for this release workflow?",
+              rationale_markdown: "The finalized brief still names the primary operator.",
+              importance: "high",
+              tags: ["stakeholders"],
+            },
+          ],
         };
       }),
     });
@@ -460,56 +451,47 @@ describe("server routes", () => {
     });
   });
 
-  it("blocks proposal generation from intake sessions until tranche 2 lands", async () => {
-    const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const app = createManagedProjectApp(repo);
-
-    const response = await request(app).post("/api/proposals/intake").send({
-      request: "Tidy the current fixture output.",
-      answers: {},
-    });
-
-    expect(response.status).toBe(409);
-    expect(response.body.error_code).toBe("proposal_intake_sessions_unavailable");
-  });
-
   it("approves and rejects proposal drafts through the api", async () => {
     const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const priorFlag = process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1;
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord(),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-BACKLOG",
+            proposalSetId: "PROPOSAL-001",
+            targetArtifact: "BACKLOG.md",
+            proposedContent: "# Backlog\n\n- [ ] Reviewed change.\n",
+          }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/assumptions.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-ASSUMPTIONS",
+            proposalSetId: "PROPOSAL-001",
+            targetArtifact: "ASSUMPTIONS.md",
+            proposedContent: "# Assumptions\n\n## Active assumptions\n\n- `A-001`: Fixture assumption one.\n",
+          }),
+        },
+      ],
+    });
+    const app = createManagedProjectApp(repo);
 
-    process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1 = "false";
+    const approveResponse = await request(app).post(
+      "/api/proposals/PROPOSAL-001-BACKLOG/approve",
+    );
+    const rejectResponse = await request(app).post(
+      "/api/proposals/PROPOSAL-001-ASSUMPTIONS/reject",
+    );
 
-    try {
-      const app = createManagedProjectApp(repo);
-      const createResponse = await request(app).post("/api/proposals/intake").send({
-        request: "Tidy the current fixture output.",
-        answers: {},
-      });
-      const [backlogDraft, trancheDraft] = createResponse.body.drafts;
-
-      expect(backlogDraft).toBeDefined();
-      expect(trancheDraft).toBeDefined();
-
-      const approveResponse = await request(app).post(
-        `/api/proposals/${backlogDraft.id}/approve`,
-      );
-      const rejectResponse = await request(app).post(
-        `/api/proposals/${trancheDraft.id}/reject`,
-      );
-
-      expect(approveResponse.status).toBe(200);
-      expect(approveResponse.body.status).toBe("approved");
-      expect(rejectResponse.status).toBe(200);
-      expect(rejectResponse.body.status).toBe("rejected");
-    } finally {
-      if (priorFlag === undefined) {
-        delete process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1;
-      } else {
-        process.env.IDEA_TO_CODEX_INTAKE_SESSIONS_V1 = priorFlag;
-      }
-    }
+    expect(approveResponse.status).toBe(200);
+    expect(approveResponse.body.status).toBe("approved");
+    expect(rejectResponse.status).toBe(200);
+    expect(rejectResponse.body.status).toBe("rejected");
   });
 
   it("returns a 500 for unknown proposal ids", async () => {

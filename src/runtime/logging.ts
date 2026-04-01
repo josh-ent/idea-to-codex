@@ -499,7 +499,6 @@ class LoggingBackend {
 
   close(): void {
     this.listeners.clear();
-    this.db.close();
   }
 }
 

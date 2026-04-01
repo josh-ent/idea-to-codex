@@ -25,10 +25,11 @@ export interface ProjectWorkspacePayload {
   known_projects: ProjectSummary[];
 }
 
-import type { StudioStatusFeatureFlags } from "../../../src/modules/intake/session-contract.js";
+import type { StudioFeatureFlags } from "../../../src/runtime/features.js";
 import type { ProjectLlmUsageSummary } from "../../../src/modules/llm/contract.js";
 import type { SessionStructuredErrorPayload as StructuredErrorPayload } from "../../../src/modules/intake/session-contract.js";
 export type {
+  AuthoritativeProvenanceEntry,
   IntakeBriefEntry,
   IntakeBriefVersion,
   IntakeQuestion,
@@ -36,11 +37,10 @@ export type {
   IntakeSessionDetail,
   IntakeSessionPayload,
   IntakeSessionStatus,
-  StudioStatusFeatureFlags,
 } from "../../../src/modules/intake/session-contract.js";
 
 export interface StatusPayload {
-  feature_flags: StudioStatusFeatureFlags;
+  feature_flags: StudioFeatureFlags;
   project: ProjectWorkspacePayload;
   llm_usage: ProjectLlmUsageSummary;
   repository_state: {

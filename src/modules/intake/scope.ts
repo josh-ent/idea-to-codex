@@ -21,9 +21,9 @@ export async function resolveIntakeScope(rootDir: string): Promise<IntakeScope> 
       const branchName = await readGitOrNull(projectRoot, ["branch", "--show-current"]);
       const worktreeId = await readWorktreeId(projectRoot);
 
-      if (worktreeId) {
+      if (branchName && worktreeId) {
         return {
-          scope_key: `${projectRoot}::${branchName ?? "-" }::${worktreeId}`,
+          scope_key: `${projectRoot}::${branchName}::${worktreeId}`,
           project_root: projectRoot,
           branch_name: branchName,
           worktree_id: worktreeId,

@@ -1,40 +1,39 @@
 import { randomUUID, createHash } from "node:crypto";
 
 import { zodTextFormat } from "openai/helpers/zod";
-import { z } from "zod";
 
-import { createLogger, logOperation } from "../../runtime/logging.js";
+import { createLogger, initializeLogging, logOperation } from "../../runtime/logging.js";
 import {
   getPersistenceDatabase,
-  initializePersistence,
 } from "../../runtime/persistence.js";
 import { parseStructuredTextWithOpenAI } from "../llm/openai.js";
 import { IntakeError } from "./errors.js";
 import { loadIntakeSessionPromptAssets, renderIntakeSessionPrompt } from "./session-prompt-assets.js";
 import {
   intakeBriefEntryTypes,
-  intakeBriefVersionStatuses,
-  intakeQuestionDirectiveActions,
-  intakeQuestionImportanceValues,
-  intakeQuestionLineageRelationTypes,
-  intakeQuestionStatuses,
-  intakeSessionStatuses,
-  intakeTurnKinds,
-  provenanceTypes,
+  intakeQuestionTags,
+  intakeSessionOutputSchema,
+  intakeSessionOutputResponseFormatName,
+  type AuthoritativeProvenanceEntry,
   type IntakeBriefEntry,
+  type IntakeBriefEntryRecord,
   type IntakeBriefVersion,
   type IntakeQuestion,
-  type IntakeQuestionDirectiveAction,
+  type IntakeQuestionRecord,
   type IntakeQuestionImportance,
   type IntakeQuestionLineage,
   type IntakeQuestionStatus,
-  type IntakeQuestionVersion,
+  type IntakeQuestionTag,
   type IntakeScope,
   type IntakeSession,
   type IntakeSessionDetail,
+  type IntakeSessionModelOutput,
   type IntakeSessionPayload,
+  type IntakeSessionQuestionDirective,
+  type IntakeQuestionVersionRecord,
   type IntakeTurn,
-  type ProvenanceEntry,
+  type ProvenanceEntryRecord,
+  type StructuredSessionTurnUsage,
 } from "./session-contract.js";
 import { resolveIntakeScope } from "./scope.js";
 
@@ -46,75 +45,42 @@ const defaultConfiguredModel =
   "gpt-5.2-chat-latest";
 const defaultTimeoutMs = 60_000;
 
-const provenanceTypeSchema = z.enum(provenanceTypes);
-const importanceSchema = z.enum(intakeQuestionImportanceValues);
-const directiveActionSchema = z.enum(intakeQuestionDirectiveActions);
-const briefItemSchema = z
-  .object({
-    text: z.string(),
-    provenance_type: provenanceTypeSchema,
-    label: z.string(),
-    detail: z.record(z.string(), z.unknown()).default({}),
-    source_metadata: z.record(z.string(), z.unknown()).default({}),
-  })
-  .strict();
-const questionDirectiveSchema = z
-  .object({
-    action: directiveActionSchema,
-    existing_question_id: z.string().optional(),
-    prompt: z.string().optional(),
-    rationale_markdown: z.string().optional(),
-    importance: importanceSchema.optional(),
-    tags: z.array(z.string()).default([]),
-  })
-  .strict();
-const intakeSessionOutputSchema = z
-  .object({
-    problem_statement: z.array(briefItemSchema).default([]),
-    elevator_pitch: z.array(briefItemSchema).default([]),
-    desired_outcomes: z.array(briefItemSchema).default([]),
-    scope_in: z.array(briefItemSchema).default([]),
-    scope_out: z.array(briefItemSchema).default([]),
-    constraints: z.array(briefItemSchema).default([]),
-    stakeholders_or_actors: z.array(briefItemSchema).default([]),
-    operating_context: z.array(briefItemSchema).default([]),
-    assumptions: z.array(briefItemSchema).default([]),
-    accepted_uncertainties: z.array(briefItemSchema).default([]),
-    research_notes: z.array(briefItemSchema).default([]),
-    likely_workstreams: z.array(briefItemSchema).default([]),
-    risks_or_open_concerns: z.array(briefItemSchema).default([]),
-    recommendations: z.array(briefItemSchema).default([]),
-    question_directives: z.array(questionDirectiveSchema).default([]),
-  })
-  .strict();
-
 export interface IntakeSessionClient {
   generate(input: {
     configuredModel: string;
     lane: string;
+    metadata: Record<string, unknown>;
     prompt: string;
     projectRoot: string;
     timeoutMs: number;
   }): Promise<{
-    output: z.infer<typeof intakeSessionOutputSchema>;
+    output: IntakeSessionModelOutput;
     resolvedModel: string | null;
+    provider: string | null;
+    request_log_event_id: number | null;
+    response_log_event_id: number | null;
+    usage: StructuredSessionTurnUsage | null;
   }>;
 }
 
 export interface IntakeSessionOptions {
   client?: IntakeSessionClient;
   configuredModel?: string;
+  reservedBriefVersionId?: string;
+  reservedTurnId?: string;
   stateDir?: string;
   timeoutMs?: number;
 }
 
-interface QuestionDirective {
-  action: IntakeQuestionDirectiveAction;
-  existing_question_id?: string;
-  prompt?: string;
-  rationale_markdown?: string;
-  importance?: IntakeQuestionImportance;
-  tags: string[];
+interface HostedTurnResult {
+  configured_model: string;
+  lane: string;
+  output: IntakeSessionModelOutput;
+  provider: string | null;
+  request_log_event_id: number | null;
+  resolved_model: string | null;
+  response_log_event_id: number | null;
+  usage: StructuredSessionTurnUsage | null;
 }
 
 export async function startIntakeSession(
@@ -150,32 +116,60 @@ export async function startIntakeSession(
 
       const session = insertSession(db, scope);
       const client = options.client ?? createDefaultClient();
-      const generated = await runHostedTurn(client, scope, requestText, "initial", session, [], [], {});
-      const detail = applyTurnResult(db, {
-        session,
-        expectedSessionRevision: session.session_revision,
-        nextSessionStatus: "active",
-        questionAnswers: {},
-        turnKind: "initial",
-        requestPayload: {
-          request_text: requestText,
-          operator_inputs: {},
-        },
-        output: generated.output,
-      });
-
-      logger.info("intake session started", {
-        branch_name: detail.session.branch_name,
-        scope_key: detail.session.scope_key,
-        session_id: detail.session.id,
-        session_revision: detail.session.session_revision,
-        worktree_id: detail.session.worktree_id,
-      });
-
-      return {
-        ...detail,
-        session_revision: detail.session.session_revision,
+      const turnId = randomUUID();
+      const briefVersionId = randomUUID();
+      const requestPayload = {
+        request_text: requestText,
+        operator_inputs: {},
       };
+      let generated: HostedTurnResult | null = null;
+
+      try {
+        generated = await runHostedTurn(
+          client,
+          scope,
+          requestText,
+          "initial",
+          session,
+          [],
+          [],
+          {},
+          {
+            ...options,
+            reservedBriefVersionId: briefVersionId,
+            reservedTurnId: turnId,
+          },
+          turnId,
+          briefVersionId,
+        );
+        const detail = applyTurnResult(db, {
+          briefVersionId,
+          session,
+          expectedSessionRevision: session.session_revision,
+          hostedTurn: generated,
+          nextSessionStatus: "active",
+          questionAnswers: {},
+          turnKind: "initial",
+          turnId,
+          requestPayload,
+        });
+
+        logger.info("intake session started", {
+          branch_name: detail.session.branch_name,
+          scope_key: detail.session.scope_key,
+          session_id: detail.session.id,
+          session_revision: detail.session.session_revision,
+          worktree_id: detail.session.worktree_id,
+        });
+
+        return {
+          ...detail,
+          session_revision: detail.session.session_revision,
+        };
+      } catch (error) {
+        cleanupFailedInitialSession(db, session, requestPayload, turnId, generated);
+        throw error;
+      }
     },
     {
       fields: {
@@ -217,13 +211,7 @@ export async function getIntakeSession(
 ): Promise<IntakeSessionPayload> {
   const scope = await resolveIntakeScope(rootDir);
   const db = openPersistence(options);
-  const detail = requireSessionDetail(db, sessionId);
-
-  if (detail.session.scope_key !== scope.scope_key) {
-    throw new IntakeError("intake_session_not_found", `Unknown intake session: ${sessionId}`, {
-      retryable: false,
-    });
-  }
+  const detail = requireScopedSessionDetail(db, scope, sessionId);
 
   return {
     ...detail,
@@ -253,7 +241,18 @@ export async function finalizeIntakeSession(
     logger,
     "finalize intake session",
     async () => {
+      const scope = await resolveIntakeScope(rootDir);
       const db = openPersistence(options);
+      const detail = requireScopedSessionDetail(db, scope, sessionId);
+
+      if (!detail.current_brief) {
+        throw new IntakeError(
+          "contract_violation",
+          "An intake session cannot be finalized before the initial brief exists.",
+          { retryable: false },
+        );
+      }
+
       const activeSession = transitionSessionStatus(
         db,
         sessionId,
@@ -261,8 +260,9 @@ export async function finalizeIntakeSession(
         "active",
         "finalizing",
       );
-      const detail = requireSessionDetail(db, sessionId);
       const client = options.client ?? createDefaultClient();
+      const turnId = randomUUID();
+      const briefVersionId = randomUUID();
       const generated = await runHostedTurn(
         client,
         extractScopeFromSession(activeSession),
@@ -275,14 +275,24 @@ export async function finalizeIntakeSession(
           answers: questionAnswersFromCurrentQuestions(detail.questions),
           note: finalizeNote,
         },
+        {
+          ...options,
+          reservedBriefVersionId: briefVersionId,
+          reservedTurnId: turnId,
+        },
+        turnId,
+        briefVersionId,
       );
 
       const finalized = applyTurnResult(db, {
+        briefVersionId,
         session: activeSession,
         expectedSessionRevision: activeSession.session_revision,
+        hostedTurn: generated,
         nextSessionStatus: "finalized",
         questionAnswers: questionAnswersFromCurrentQuestions(detail.questions),
         turnKind: "finalize",
+        turnId,
         requestPayload: {
           request_text: finalizeNote,
           operator_inputs: {
@@ -290,7 +300,6 @@ export async function finalizeIntakeSession(
             note: finalizeNote,
           },
         },
-        output: generated.output,
       });
 
       return {
@@ -339,10 +348,11 @@ export async function abandonIntakeSession(
   expectedSessionRevision: number,
   options: IntakeSessionOptions = {},
 ): Promise<IntakeSessionPayload> {
-  await resolveIntakeScope(rootDir);
+  const scope = await resolveIntakeScope(rootDir);
   const db = openPersistence(options);
+  requireScopedSessionDetail(db, scope, sessionId);
   transitionSessionStatus(db, sessionId, expectedSessionRevision, "active", "abandoned");
-  const detail = requireSessionDetail(db, sessionId);
+  const detail = requireScopedSessionDetail(db, scope, sessionId);
 
   return {
     ...detail,
@@ -371,9 +381,9 @@ async function runContinuation(
     logger,
     "continue intake session",
     async () => {
-      await resolveIntakeScope(rootDir);
+      const scope = await resolveIntakeScope(rootDir);
       const db = openPersistence(options);
-      const detail = requireSessionDetail(db, sessionId);
+      const detail = requireScopedSessionDetail(db, scope, sessionId);
 
       if (detail.session.status !== "active") {
         throw new IntakeError(
@@ -402,6 +412,8 @@ async function runContinuation(
         answer_text: questionAnswers[question.id] ?? question.answer_text,
       }));
       const client = options.client ?? createDefaultClient();
+      const turnId = randomUUID();
+      const briefVersionId = randomUUID();
       const generated = await runHostedTurn(
         client,
         extractScopeFromSession(detail.session),
@@ -414,13 +426,23 @@ async function runContinuation(
           answers: questionAnswers,
           note: operatorNotes,
         },
+        {
+          ...options,
+          reservedBriefVersionId: briefVersionId,
+          reservedTurnId: turnId,
+        },
+        turnId,
+        briefVersionId,
       );
       const updated = applyTurnResult(db, {
+        briefVersionId,
         session: detail.session,
         expectedSessionRevision,
+        hostedTurn: generated,
         nextSessionStatus: "active",
         questionAnswers,
         turnKind,
+        turnId,
         requestPayload: {
           request_text: operatorNotes,
           operator_inputs: {
@@ -428,7 +450,6 @@ async function runContinuation(
             note: operatorNotes,
           },
         },
-        output: generated.output,
       });
 
       return {
@@ -454,21 +475,25 @@ function createDefaultClient(): IntakeSessionClient {
   if (!apiKey) {
     throw new IntakeError(
       "llm_not_configured",
-      "OpenAI intake analysis is not configured. Set OPENAI_API_KEY before running intake analysis.",
+      "OpenAI intake is not configured. Set OPENAI_API_KEY before running intake.",
     );
   }
 
   return {
     async generate(input) {
       const assets = await loadIntakeSessionPromptAssets();
-      const response = await parseStructuredTextWithOpenAI<z.infer<typeof intakeSessionOutputSchema>>({
+      const response = await parseStructuredTextWithOpenAI<IntakeSessionModelOutput>({
         apiKey,
         canonicalProjectRoot: input.projectRoot,
         configuredModel: input.configuredModel,
         instructions: assets.system_instructions,
         lane: input.lane,
+        metadata: input.metadata,
         prompt: input.prompt,
-        responseFormat: zodTextFormat(intakeSessionOutputSchema, assets.response_format_name),
+        responseFormat: zodTextFormat(
+          intakeSessionOutputSchema,
+          intakeSessionOutputResponseFormatName,
+        ),
         timeoutMs: input.timeoutMs,
       });
 
@@ -481,7 +506,11 @@ function createDefaultClient(): IntakeSessionClient {
 
       return {
         output: response.parsed,
+        provider: "openai",
+        request_log_event_id: response.requestLogEventId,
         resolvedModel: response.resolvedModel,
+        response_log_event_id: response.responseLogEventId,
+        usage: response.usage,
       };
     },
   };
@@ -497,12 +526,24 @@ async function runHostedTurn(
   currentQuestions: IntakeQuestion[],
   operatorInputs: Record<string, unknown>,
   options: IntakeSessionOptions = {},
-) {
+  turnId?: string,
+  resultBriefVersionId?: string,
+): Promise<HostedTurnResult> {
   const assets = await loadIntakeSessionPromptAssets();
+  const configuredModel = options.configuredModel?.trim() || defaultConfiguredModel;
 
-  return client.generate({
-    configuredModel: options.configuredModel?.trim() || defaultConfiguredModel,
+  const generated = await client.generate({
+    configuredModel,
     lane: intakeLane,
+    metadata: {
+      base_brief_version_id: session.current_brief_version_id,
+      brief_version_id: resultBriefVersionId ?? null,
+      operation_owner: "intake_session",
+      project_root: scope.project_root,
+      session_id: session.id,
+      turn_id: turnId ?? null,
+      turn_kind: turnKind,
+    },
     projectRoot: scope.project_root,
     prompt: renderIntakeSessionPrompt({
       branch_name: scope.branch_name,
@@ -517,6 +558,7 @@ async function runHostedTurn(
       current_questions_json: JSON.stringify(
         currentQuestions.map((question) => ({
           answer_text: question.answer_text,
+          display_id: question.display_id,
           id: question.id,
           importance: question.importance,
           prompt: question.current_prompt,
@@ -537,6 +579,17 @@ async function runHostedTurn(
     }),
     timeoutMs: normalizeTimeoutMs(options.timeoutMs),
   });
+
+  return {
+    configured_model: configuredModel,
+    lane: intakeLane,
+    output: generated.output,
+    provider: generated.provider,
+    request_log_event_id: generated.request_log_event_id,
+    resolved_model: generated.resolvedModel,
+    response_log_event_id: generated.response_log_event_id,
+    usage: generated.usage,
+  };
 }
 
 function normalizeTimeoutMs(timeoutMs?: number): number {
@@ -621,6 +674,22 @@ function requireSessionDetail(
   return detail;
 }
 
+function requireScopedSessionDetail(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  scope: IntakeScope,
+  sessionId: string,
+): IntakeSessionDetail {
+  const detail = requireSessionDetail(db, sessionId);
+
+  if (detail.session.scope_key !== scope.scope_key) {
+    throw new IntakeError("intake_session_not_found", `Unknown intake session: ${sessionId}`, {
+      retryable: false,
+    });
+  }
+
+  return detail;
+}
+
 function readSessionDetail(
   db: ReturnType<typeof getPersistenceDatabase>,
   sessionId: string,
@@ -636,20 +705,8 @@ function readSessionDetail(
         db.prepare("SELECT * FROM intake_brief_versions WHERE id = ?").get(session.current_brief_version_id),
       )
     : null;
-  const current_brief_entries = current_brief
-    ? db
-        .prepare(
-          "SELECT * FROM intake_brief_entries WHERE brief_version_id = ? ORDER BY position ASC, id ASC",
-        )
-        .all(current_brief.id)
-        .map((row) => row as IntakeBriefEntry)
-    : [];
-  const questions = db
-    .prepare(
-      "SELECT * FROM intake_questions WHERE session_id = ? ORDER BY current_display_order ASC, updated_at ASC",
-    )
-    .all(sessionId)
-    .map(readQuestionRow);
+  const current_brief_entries = current_brief ? readBriefEntriesForVersion(db, current_brief.id) : [];
+  const questions = readQuestionsForSession(db, sessionId);
   const question_lineage_summary = db
     .prepare(
       "SELECT * FROM intake_question_lineage WHERE session_id = ? ORDER BY rowid ASC",
@@ -682,13 +739,15 @@ function readSessionDetail(
 function applyTurnResult(
   db: ReturnType<typeof getPersistenceDatabase>,
   input: {
+    briefVersionId: string;
     session: IntakeSession;
     expectedSessionRevision: number;
+    hostedTurn: HostedTurnResult;
     nextSessionStatus: "active" | "finalized";
     questionAnswers: Record<string, string>;
     turnKind: "initial" | "continue" | "finalize";
+    turnId: string;
     requestPayload: Record<string, unknown>;
-    output: z.infer<typeof intakeSessionOutputSchema>;
   },
 ): IntakeSessionDetail {
   const apply = db.transaction(() => {
@@ -732,44 +791,62 @@ function applyTurnResult(
           ).get(session.id) as { value: number | null }
         ).value ?? 0,
       ) + 1;
-    const turnId = randomUUID();
-    const briefVersionId = randomUUID();
     const currentQuestions = db
       .prepare("SELECT * FROM intake_questions WHERE session_id = ? ORDER BY current_display_order ASC")
       .all(session.id)
-      .map(readQuestionRow);
+      .map(readQuestionRecordRow);
     const reconciled = reconcileQuestions(
       currentQuestions,
-      input.output.question_directives,
+      input.hostedTurn.output.question_directives,
       input.questionAnswers,
       nextRevision,
-      turnId,
+      input.turnId,
       input.turnKind,
     );
-    const renderedBrief = renderBriefMarkdown(input.output);
+    const renderedBrief = renderBriefMarkdown(input.hostedTurn.output);
 
     db.prepare(
       [
         "INSERT INTO intake_turns (",
         "  id, session_id, turn_number, turn_kind, base_brief_version_id, result_brief_version_id,",
-        "  request_payload_json, llm_response_json, created_at, completed_at, status",
+        "  request_payload_json, llm_response_json, created_at, completed_at, status, provider, lane,",
+        "  configured_model, resolved_model, input_tokens, output_tokens, total_tokens,",
+        "  request_log_event_id, response_log_event_id, session_revision_before, session_revision_after,",
+        "  question_reconciliation_summary_json",
         ") VALUES (",
         "  @id, @session_id, @turn_number, @turn_kind, @base_brief_version_id, @result_brief_version_id,",
-        "  @request_payload_json, @llm_response_json, @created_at, @completed_at, @status",
+        "  @request_payload_json, @llm_response_json, @created_at, @completed_at, @status, @provider, @lane,",
+        "  @configured_model, @resolved_model, @input_tokens, @output_tokens, @total_tokens,",
+        "  @request_log_event_id, @response_log_event_id, @session_revision_before, @session_revision_after,",
+        "  @question_reconciliation_summary_json",
         ")",
       ].join("\n"),
     ).run({
-      id: turnId,
+      id: input.turnId,
       session_id: session.id,
       turn_number: turnNumber,
       turn_kind: input.turnKind,
       base_brief_version_id: session.current_brief_version_id,
-      result_brief_version_id: briefVersionId,
+      result_brief_version_id: input.briefVersionId,
       request_payload_json: JSON.stringify(input.requestPayload),
-      llm_response_json: JSON.stringify(input.output),
+      llm_response_json: JSON.stringify(input.hostedTurn.output),
       created_at: now,
       completed_at: now,
+      configured_model: input.hostedTurn.configured_model,
+      input_tokens: input.hostedTurn.usage?.input_tokens ?? null,
+      lane: input.hostedTurn.lane,
+      output_tokens: input.hostedTurn.usage?.output_tokens ?? null,
+      provider: input.hostedTurn.provider,
+      question_reconciliation_summary_json: JSON.stringify(
+        summarizeQuestionReconciliation(reconciled.lineage),
+      ),
+      request_log_event_id: input.hostedTurn.request_log_event_id,
+      resolved_model: input.hostedTurn.resolved_model,
+      response_log_event_id: input.hostedTurn.response_log_event_id,
+      session_revision_after: nextRevision,
+      session_revision_before: session.session_revision,
       status: "succeeded",
+      total_tokens: input.hostedTurn.usage?.total_tokens ?? null,
     });
 
     db.prepare(
@@ -781,17 +858,17 @@ function applyTurnResult(
         ")",
       ].join("\n"),
     ).run({
-      id: briefVersionId,
+      id: input.briefVersionId,
       session_id: session.id,
       brief_version_number: briefVersionNumber,
-      created_from_turn_id: turnId,
+      created_from_turn_id: input.turnId,
       status: input.nextSessionStatus === "finalized" ? "final" : "draft",
       rendered_markdown: renderedBrief,
       created_at: now,
     });
 
     let position = 0;
-    for (const entry of toBriefEntries(input.output)) {
+    for (const entry of toBriefEntries(input.hostedTurn.output)) {
       const entryId = randomUUID();
       db.prepare(
         [
@@ -803,7 +880,7 @@ function applyTurnResult(
         ].join("\n"),
       ).run({
         id: entryId,
-        brief_version_id: briefVersionId,
+        brief_version_id: input.briefVersionId,
         entry_type: entry.entry_type,
         position: position++,
         value_json: JSON.stringify({ text: entry.text }),
@@ -846,18 +923,18 @@ function applyTurnResult(
         tags_json: JSON.stringify(change.tags),
         updated_at: now,
       });
-      insertQuestionVersion(db, change, session.id, turnId, now);
+      insertQuestionVersion(db, change, session.id, input.turnId, now);
     }
 
     for (const createdQuestion of reconciled.created_questions) {
       db.prepare(
         [
           "INSERT INTO intake_questions (",
-          "  id, session_id, origin_turn_id, current_prompt, current_rationale_markdown,",
+          "  id, display_id, session_id, origin_turn_id, current_prompt, current_rationale_markdown,",
           "  importance, tags_json, status, current_display_order, answer_text, answer_updated_at,",
           "  superseded_by_question_id, session_revision_seen, updated_at",
           ") VALUES (",
-          "  @id, @session_id, @origin_turn_id, @current_prompt, @current_rationale_markdown,",
+          "  @id, @display_id, @session_id, @origin_turn_id, @current_prompt, @current_rationale_markdown,",
           "  @importance, @tags_json, @status, @current_display_order, @answer_text, @answer_updated_at,",
           "  @superseded_by_question_id, @session_revision_seen, @updated_at",
           ")",
@@ -868,9 +945,10 @@ function applyTurnResult(
         current_display_order: createdQuestion.current_display_order,
         current_prompt: createdQuestion.current_prompt,
         current_rationale_markdown: createdQuestion.current_rationale_markdown,
+        display_id: createdQuestion.display_id,
         id: createdQuestion.id,
         importance: createdQuestion.importance,
-        origin_turn_id: turnId,
+        origin_turn_id: input.turnId,
         session_id: session.id,
         session_revision_seen: nextRevision,
         status: createdQuestion.status,
@@ -878,7 +956,7 @@ function applyTurnResult(
         tags_json: JSON.stringify(createdQuestion.tags),
         updated_at: now,
       });
-      insertQuestionVersion(db, createdQuestion, session.id, turnId, now);
+      insertQuestionVersion(db, createdQuestion, session.id, input.turnId, now);
     }
 
     for (const lineage of reconciled.lineage) {
@@ -893,7 +971,7 @@ function applyTurnResult(
       ).run({
         id: randomUUID(),
         session_id: session.id,
-        turn_id: turnId,
+        turn_id: input.turnId,
         from_question_id: lineage.from_question_id,
         to_question_id: lineage.to_question_id,
         relation_type: lineage.relation_type,
@@ -908,8 +986,8 @@ function applyTurnResult(
         "WHERE id = @id",
       ].join("\n"),
     ).run({
-      current_brief_version_id: briefVersionId,
       finalized_at: input.nextSessionStatus === "finalized" ? now : session.finalized_at,
+      current_brief_version_id: input.briefVersionId,
       id: session.id,
       session_revision: nextRevision,
       status: input.nextSessionStatus,
@@ -923,21 +1001,22 @@ function applyTurnResult(
 }
 
 function reconcileQuestions(
-  currentQuestions: IntakeQuestion[],
-  directives: QuestionDirective[],
+  currentQuestions: Array<IntakeQuestion | IntakeQuestionRecord>,
+  directives: IntakeSessionQuestionDirective[],
   questionAnswers: Record<string, string>,
   nextRevision: number,
   turnId: string,
   turnKind: "initial" | "continue" | "finalize",
 ): {
-  previous_questions: IntakeQuestion[];
-  created_questions: IntakeQuestion[];
+  previous_questions: IntakeQuestionRecord[];
+  created_questions: IntakeQuestionRecord[];
   lineage: IntakeQuestionLineage[];
 } {
-  const currentById = new Map(currentQuestions.map((question) => [question.id, question]));
+  const liveQuestions = currentQuestions.filter(isLiveQuestion);
+  const currentById = new Map(liveQuestions.map((question) => [question.id, question]));
   const touchedQuestionIds = new Set<string>();
-  const previous_questions: IntakeQuestion[] = [];
-  const created_questions: IntakeQuestion[] = [];
+  const previous_questions: IntakeQuestionRecord[] = [];
+  const created_questions: IntakeQuestionRecord[] = [];
   const lineage: IntakeQuestionLineage[] = [];
   let displayOrder = 1;
 
@@ -1051,12 +1130,25 @@ function reconcileQuestions(
     });
   }
 
-  for (const question of currentQuestions) {
-    if (touchedQuestionIds.has(question.id)) {
-      continue;
-    }
+  const omittedQuestions = liveQuestions.filter((question) => !touchedQuestionIds.has(question.id));
 
-    if (turnKind === "finalize" && question.status === "open" && !question.answer_text?.trim()) {
+  if (turnKind === "continue" && omittedQuestions.length > 0) {
+    throw new IntakeError(
+      "intake_question_mapping_invalid",
+      `Every live intake question must receive exactly one directive on continue. Missing: ${omittedQuestions
+        .map((question) => question.id)
+        .join(", ")}`,
+      { retryable: false },
+    );
+  }
+
+  for (const question of omittedQuestions) {
+    if (
+      turnKind === "finalize"
+      && question.status === "open"
+      && !question.answer_text?.trim()
+      && !questionAnswers[question.id]?.trim()
+    ) {
       previous_questions.push({
         ...question,
         status: "accepted_without_answer",
@@ -1073,20 +1165,16 @@ function reconcileQuestions(
       continue;
     }
 
+    throw new IntakeError(
+      "intake_question_mapping_invalid",
+      `Every live intake question must receive exactly one directive on ${turnKind}. Missing: ${question.id}`,
+      { retryable: false },
+    );
+  }
+
+  for (const question of currentQuestions.filter((entry) => !isLiveQuestion(entry))) {
     previous_questions.push({
       ...question,
-      answer_text: questionAnswers[question.id] ?? question.answer_text,
-      answer_updated_at:
-        (questionAnswers[question.id] ?? question.answer_text)?.trim()
-          ? new Date().toISOString()
-          : question.answer_updated_at,
-      current_display_order:
-        question.status === "open" || question.status === "answered" ? displayOrder++ : question.current_display_order,
-      status:
-        question.status === "open" && (questionAnswers[question.id] ?? question.answer_text)?.trim()
-          ? "answered"
-          : question.status,
-      updated_at: new Date().toISOString(),
     });
   }
 
@@ -1106,9 +1194,10 @@ function createQuestion(
   displayOrder: number,
   directive: ReturnType<typeof normalizeDirective>,
   answerText: string | null,
-): IntakeQuestion {
+): IntakeQuestionRecord {
   return {
     id: randomUUID(),
+    display_id: nextQuestionDisplayId(),
     session_id: "",
     origin_turn_id: turnId,
     current_prompt: directive.prompt!,
@@ -1125,20 +1214,22 @@ function createQuestion(
   };
 }
 
-function normalizeDirective(directive: QuestionDirective): QuestionDirective {
+function normalizeDirective(
+  directive: IntakeSessionQuestionDirective,
+): IntakeSessionQuestionDirective {
   return {
     action: directive.action,
     existing_question_id: directive.existing_question_id?.trim(),
     importance: directive.importance,
     prompt: directive.prompt?.trim(),
     rationale_markdown: directive.rationale_markdown?.trim(),
-    tags: [...new Set((directive.tags ?? []).map((tag) => tag.trim()).filter(Boolean))].sort(),
+    tags: [...new Set((directive.tags ?? []).filter(isIntakeQuestionTag))].sort(),
   };
 }
 
 function insertQuestionVersion(
   db: ReturnType<typeof getPersistenceDatabase>,
-  question: IntakeQuestion,
+  question: IntakeQuestionRecord,
   sessionId: string,
   turnId: string,
   createdAt: string,
@@ -1157,15 +1248,16 @@ function insertQuestionVersion(
     [
       "INSERT INTO intake_question_versions (",
       "  id, question_id, session_id, turn_id, version_number, prompt, rationale_markdown,",
-      "  importance, tags_json, status, display_order, answer_text, created_at",
+      "  display_id, importance, tags_json, status, display_order, answer_text, created_at",
       ") VALUES (",
       "  @id, @question_id, @session_id, @turn_id, @version_number, @prompt, @rationale_markdown,",
-      "  @importance, @tags_json, @status, @display_order, @answer_text, @created_at",
+      "  @display_id, @importance, @tags_json, @status, @display_order, @answer_text, @created_at",
       ")",
     ].join("\n"),
   ).run({
     answer_text: question.answer_text,
     created_at: createdAt,
+    display_id: question.display_id,
     display_order: question.current_display_order,
     id: versionId,
     importance: question.importance,
@@ -1200,8 +1292,8 @@ function insertProvenanceEntry(
     detail: Record<string, unknown>;
     label: string;
     owner_id: string;
-    owner_kind: ProvenanceEntry["owner_kind"];
-    provenance_type: ProvenanceEntry["provenance_type"];
+    owner_kind: ProvenanceEntryRecord["owner_kind"];
+    provenance_type: ProvenanceEntryRecord["provenance_type"];
     source_metadata: Record<string, unknown>;
   },
 ): void {
@@ -1225,13 +1317,13 @@ function insertProvenanceEntry(
   });
 }
 
-function renderBriefMarkdown(output: z.infer<typeof intakeSessionOutputSchema>): string {
+function renderBriefMarkdown(output: IntakeSessionModelOutput): string {
   return toBriefEntries(output)
     .map((entry) => `## ${entry.entry_type}\n\n${entry.text}`)
     .join("\n\n");
 }
 
-function toBriefEntries(output: z.infer<typeof intakeSessionOutputSchema>) {
+function toBriefEntries(output: IntakeSessionModelOutput) {
   return intakeBriefEntryTypes.flatMap((entryType) =>
     output[entryType].map((item) => ({
       detail: item.detail,
@@ -1355,7 +1447,55 @@ function readBriefVersionRow(row: unknown): IntakeBriefVersion | null {
   };
 }
 
-function readQuestionRow(row: unknown): IntakeQuestion {
+function readBriefEntriesForVersion(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  briefVersionId: string,
+): IntakeBriefEntry[] {
+  const records = db
+    .prepare(
+      "SELECT * FROM intake_brief_entries WHERE brief_version_id = ? ORDER BY position ASC, id ASC",
+    )
+    .all(briefVersionId)
+    .map(readBriefEntryRow);
+
+  return records.map((record) => ({
+    ...record,
+    provenance_entries: readAuthoritativeProvenanceEntries(db, "brief_entry", record.id),
+  }));
+}
+
+function readBriefEntryRow(row: unknown): IntakeBriefEntryRecord {
+  const value = row as Record<string, unknown>;
+
+  return {
+    brief_version_id: readString(value.brief_version_id),
+    entry_type: readString(value.entry_type) as IntakeBriefEntryRecord["entry_type"],
+    id: readString(value.id),
+    position: Number(value.position),
+    provenance_summary: readNullableString(value.provenance_summary),
+    rendered_markdown: readString(value.rendered_markdown),
+    value_json: readString(value.value_json),
+  };
+}
+
+function readQuestionsForSession(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  sessionId: string,
+): IntakeQuestion[] {
+  const records = db
+    .prepare(
+      "SELECT * FROM intake_questions WHERE session_id = ? ORDER BY current_display_order ASC, updated_at ASC",
+    )
+    .all(sessionId)
+    .map(readQuestionRecordRow);
+
+  return records.map((record) => ({
+    ...record,
+    provenance_entries: readQuestionProvenanceEntries(db, record.id),
+  }));
+}
+
+function readQuestionRecordRow(row: unknown): IntakeQuestionRecord {
   const value = row as Record<string, unknown>;
 
   return {
@@ -1364,15 +1504,98 @@ function readQuestionRow(row: unknown): IntakeQuestion {
     current_display_order: Number(value.current_display_order),
     current_prompt: readString(value.current_prompt),
     current_rationale_markdown: readString(value.current_rationale_markdown),
+    display_id: readString(value.display_id),
     id: readString(value.id),
-    importance: readString(value.importance) as IntakeQuestionStatus & IntakeQuestionImportance,
+    importance: readString(value.importance) as IntakeQuestionImportance,
     origin_turn_id: readString(value.origin_turn_id),
     session_id: readString(value.session_id),
     session_revision_seen: Number(value.session_revision_seen),
     status: readString(value.status) as IntakeQuestionStatus,
     superseded_by_question_id: readNullableString(value.superseded_by_question_id),
-    tags: JSON.parse(readString(value.tags_json)) as string[],
+    tags: readQuestionTags(value.tags_json),
     updated_at: readString(value.updated_at),
+  };
+}
+
+function readQuestionVersionRecord(row: unknown): IntakeQuestionVersionRecord | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const value = row as Record<string, unknown>;
+
+  return {
+    answer_text: readNullableString(value.answer_text),
+    created_at: readString(value.created_at),
+    display_id: readString(value.display_id),
+    display_order: Number(value.display_order),
+    id: readString(value.id),
+    importance: readString(value.importance) as IntakeQuestionImportance,
+    prompt: readString(value.prompt),
+    question_id: readString(value.question_id),
+    rationale_markdown: readString(value.rationale_markdown),
+    session_id: readString(value.session_id),
+    status: readString(value.status) as IntakeQuestionStatus,
+    tags: readQuestionTags(value.tags_json),
+    turn_id: readString(value.turn_id),
+    version_number: Number(value.version_number),
+  };
+}
+
+function readQuestionProvenanceEntries(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  questionId: string,
+): AuthoritativeProvenanceEntry[] {
+  const currentVersion = readQuestionVersionRecord(
+    db.prepare(
+      [
+        "SELECT *",
+        "FROM intake_question_versions",
+        "WHERE question_id = ?",
+        "ORDER BY version_number DESC",
+        "LIMIT 1",
+      ].join("\n"),
+    ).get(questionId),
+  );
+
+  if (!currentVersion) {
+    return [];
+  }
+
+  return readAuthoritativeProvenanceEntries(db, "question_version", currentVersion.id);
+}
+
+function readAuthoritativeProvenanceEntries(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  ownerKind: ProvenanceEntryRecord["owner_kind"],
+  ownerId: string,
+): AuthoritativeProvenanceEntry[] {
+  return db
+    .prepare(
+      "SELECT * FROM provenance_entries WHERE owner_kind = ? AND owner_id = ? ORDER BY rowid ASC",
+    )
+    .all(ownerKind, ownerId)
+    .map(readProvenanceEntryRow)
+    .map((entry) => ({
+      provenance_type: entry.provenance_type,
+      label: entry.label,
+      detail: parseJsonRecord(entry.detail_json),
+      source_metadata: parseJsonRecord(entry.source_metadata_json),
+    }));
+}
+
+function readProvenanceEntryRow(row: unknown): ProvenanceEntryRecord {
+  const value = row as Record<string, unknown>;
+
+  return {
+    created_at: readString(value.created_at),
+    detail_json: readString(value.detail_json),
+    id: readString(value.id),
+    label: readString(value.label),
+    owner_id: readString(value.owner_id),
+    owner_kind: readString(value.owner_kind) as ProvenanceEntryRecord["owner_kind"],
+    provenance_type: readString(value.provenance_type) as ProvenanceEntryRecord["provenance_type"],
+    source_metadata_json: readString(value.source_metadata_json),
   };
 }
 
@@ -1382,6 +1605,108 @@ function readString(value: unknown): string {
 
 function readNullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function readQuestionTags(value: unknown): IntakeQuestionTag[] {
+  try {
+    const parsed = JSON.parse(readString(value));
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(isIntakeQuestionTag).sort();
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function isIntakeQuestionTag(value: unknown): value is IntakeQuestionTag {
+  return typeof value === "string" && intakeQuestionTags.includes(value as IntakeQuestionTag);
+}
+
+function isLiveQuestion(question: IntakeQuestion | IntakeQuestionRecord): boolean {
+  return question.status === "open" || question.status === "answered";
+}
+
+function nextQuestionDisplayId(): string {
+  return `QUESTION-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+function summarizeQuestionReconciliation(
+  lineage: IntakeQuestionLineage[],
+): Record<string, number> {
+  return lineage.reduce<Record<string, number>>((summary, item) => {
+    summary[item.relation_type] = (summary[item.relation_type] ?? 0) + 1;
+    return summary;
+  }, {});
+}
+
+function cleanupFailedInitialSession(
+  db: ReturnType<typeof getPersistenceDatabase>,
+  session: IntakeSession,
+  requestPayload: Record<string, unknown>,
+  turnId: string,
+  hostedTurn: HostedTurnResult | null,
+): void {
+  db.transaction(() => {
+    const now = new Date().toISOString();
+
+    db.prepare(
+      [
+        "INSERT INTO intake_turns (",
+        "  id, session_id, turn_number, turn_kind, base_brief_version_id, result_brief_version_id,",
+        "  request_payload_json, llm_response_json, created_at, completed_at, status, provider, lane,",
+        "  configured_model, resolved_model, input_tokens, output_tokens, total_tokens,",
+        "  request_log_event_id, response_log_event_id, session_revision_before, session_revision_after,",
+        "  question_reconciliation_summary_json",
+        ") VALUES (",
+        "  @id, @session_id, @turn_number, @turn_kind, @base_brief_version_id, @result_brief_version_id,",
+        "  @request_payload_json, @llm_response_json, @created_at, @completed_at, @status, @provider, @lane,",
+        "  @configured_model, @resolved_model, @input_tokens, @output_tokens, @total_tokens,",
+        "  @request_log_event_id, @response_log_event_id, @session_revision_before, @session_revision_after,",
+        "  @question_reconciliation_summary_json",
+        ")",
+      ].join("\n"),
+    ).run({
+      base_brief_version_id: null,
+      completed_at: now,
+      configured_model: hostedTurn?.configured_model ?? defaultConfiguredModel,
+      created_at: now,
+      id: turnId,
+      input_tokens: hostedTurn?.usage?.input_tokens ?? null,
+      lane: hostedTurn?.lane ?? intakeLane,
+      llm_response_json: hostedTurn ? JSON.stringify(hostedTurn.output) : null,
+      output_tokens: hostedTurn?.usage?.output_tokens ?? null,
+      provider: hostedTurn?.provider ?? null,
+      question_reconciliation_summary_json: null,
+      request_log_event_id: hostedTurn?.request_log_event_id ?? null,
+      request_payload_json: JSON.stringify(requestPayload),
+      resolved_model: hostedTurn?.resolved_model ?? null,
+      response_log_event_id: hostedTurn?.response_log_event_id ?? null,
+      result_brief_version_id: null,
+      session_id: session.id,
+      session_revision_after: null,
+      session_revision_before: session.session_revision,
+      status: "failed",
+      total_tokens: hostedTurn?.usage?.total_tokens ?? null,
+      turn_kind: "initial",
+      turn_number: 1,
+    });
+
+    db.prepare("DELETE FROM intake_sessions WHERE id = ?").run(session.id);
+  })();
 }
 
 function readRequestText(requestPayloadJson: string | undefined): string {
@@ -1402,6 +1727,6 @@ export function hashProposalInputManifest(input: unknown): string {
 }
 
 function openPersistence(options: { stateDir?: string } = {}) {
-  initializePersistence({ stateDir: options.stateDir });
+  initializeLogging({ stateDir: options.stateDir });
   return getPersistenceDatabase();
 }

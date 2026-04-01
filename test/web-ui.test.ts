@@ -6,7 +6,10 @@ import { mount } from "@vue/test-utils";
 // @ts-expect-error The UI tests must use the web app's Pinia singleton, not the root package copy.
 import { createPinia, setActivePinia, type Pinia } from "../web/node_modules/pinia/dist/pinia.mjs";
 
-import type { IntakeSessionPayload } from "../src/modules/intake/session-contract.js";
+import type {
+  IntakeQuestionTag,
+  IntakeSessionPayload,
+} from "../src/modules/intake/session-contract.js";
 import type { StatusPayload } from "../web/src/api/console.js";
 
 const { getJsonMock, postJsonMock } = vi.hoisted(() => ({
@@ -35,7 +38,6 @@ let pinia: Pinia;
 function buildStatusPayload(): StatusPayload {
   return {
     feature_flags: {
-      intake_sessions_v1: true,
       proposal_llm_v1: false,
     },
     project: {
@@ -80,14 +82,17 @@ function buildStatusPayload(): StatusPayload {
 }
 
 function buildQuestion(id: string, index: number, answerText = "") {
+  const tags: IntakeQuestionTag[] = index === 0 ? ["scope", "risks"] : ["constraints"];
+
   return {
     id,
+    display_id: `QUESTION-${String(index + 1).padStart(8, "0")}`,
     session_id: "INTAKE-001",
     origin_turn_id: "TURN-001",
     current_prompt: `Prompt for ${id}.`,
     current_rationale_markdown: `Rationale for ${id}.`,
     importance: index === 0 ? ("high" as const) : ("medium" as const),
-    tags: index === 0 ? ["scope", "risk"] : ["constraints"],
+    tags,
     status: answerText ? ("answered" as const) : ("open" as const),
     current_display_order: index + 1,
     answer_text: answerText || null,
@@ -95,6 +100,14 @@ function buildQuestion(id: string, index: number, answerText = "") {
     superseded_by_question_id: null,
     session_revision_seen: 2,
     updated_at: "2026-03-31T10:00:00.000Z",
+    provenance_entries: [
+      {
+        provenance_type: "llm_inferred" as const,
+        label: "Question synthesized during intake",
+        detail: { prompt: `Prompt for ${id}.` },
+        source_metadata: {},
+      },
+    ],
   };
 }
 
@@ -147,6 +160,14 @@ function buildSessionPayload(options: {
         value_json: JSON.stringify({ text: "The project needs a tighter intake brief." }),
         rendered_markdown: "The project needs a tighter intake brief.",
         provenance_summary: options.briefEntryProvenance ?? "llm_inferred: Intake brief synthesized by the model",
+        provenance_entries: [
+          {
+            provenance_type: "llm_inferred",
+            label: "Intake brief synthesized by the model",
+            detail: { source: "stub" },
+            source_metadata: {},
+          },
+        ],
       },
     ],
     questions,
@@ -264,7 +285,7 @@ describe("console ui", () => {
     });
   });
 
-  it("renders the session workspace compactly and keeps finalise available", async () => {
+  it("renders provenance-aware intake state and keeps active-session controls enabled", async () => {
     const store = useConsoleStore();
     store.status = buildStatusPayload();
     store.intakeSession = buildSessionPayload({
@@ -279,17 +300,39 @@ describe("console ui", () => {
     expect(wrapper.text()).toContain("Continue intake");
     expect(wrapper.text()).toContain("Finalise intake");
     expect(wrapper.text()).toContain("Abandon");
-    expect(wrapper.text()).toContain("Provenance: llm_inferred: Intake brief synthesized by the model");
+    expect(wrapper.text()).toContain("Intake brief synthesized by the model");
     expect(wrapper.text()).toContain("Prompt for question-1.");
+    expect(wrapper.text()).toContain("QUESTION-00000001");
     expect(wrapper.text()).toContain("Lineage:");
     expect(wrapper.text()).toContain("retained as");
     expect(wrapper.text()).not.toContain("Generate proposal set");
 
-    const finaliseButton = wrapper
-      .findAll("button")
-      .find((button) => button.text() === "Finalise intake");
+    const buttons = Object.fromEntries(
+      wrapper.findAll("button").map((button) => [button.text(), button]),
+    );
 
-    expect(finaliseButton?.attributes("disabled")).toBeUndefined();
+    expect(buttons["Continue intake"]?.attributes("disabled")).toBeUndefined();
+    expect(buttons["Finalise intake"]?.attributes("disabled")).toBeUndefined();
+    expect(buttons["Abandon"]?.attributes("disabled")).toBeUndefined();
+  });
+
+  it("disables terminal-state controls and editing in the intake workspace", async () => {
+    const store = useConsoleStore();
+    store.status = buildStatusPayload();
+    store.intakeSession = buildSessionPayload({ status: "finalized" });
+
+    const wrapper = mountIntakeSection();
+    const buttons = Object.fromEntries(
+      wrapper.findAll("button").map((button) => [button.text(), button]),
+    );
+    const textareas = wrapper.findAll("textarea");
+
+    expect(buttons["Continue intake"]?.attributes("disabled")).toBeDefined();
+    expect(buttons["Finalise intake"]?.attributes("disabled")).toBeDefined();
+    expect(buttons["Abandon"]?.attributes("disabled")).toBeDefined();
+    expect(textareas[1]?.attributes("disabled")).toBeDefined();
+    expect(textareas[2]?.attributes("disabled")).toBeDefined();
+    expect(textareas.some((area) => area.attributes("disabled") !== undefined)).toBe(true);
   });
 
   it("renders the active-project token metrics in the left rail", async () => {

@@ -1,44 +1,31 @@
+import type {
+  IntakeQuestionTag,
+  IntakeSessionModelOutput,
+} from "../../src/modules/intake/session-contract.js";
 import type { IntakeSessionClient } from "../../src/modules/intake/session-service.js";
 
+type BriefEntryType = Exclude<keyof IntakeSessionModelOutput, "question_directives">;
+
 export interface IntakeSessionBriefEntryDraft {
-  entry_type:
-    | "problem_statement"
-    | "elevator_pitch"
-    | "desired_outcomes"
-    | "scope_in"
-    | "scope_out"
-    | "constraints"
-    | "stakeholders_or_actors"
-    | "operating_context"
-    | "assumptions"
-    | "accepted_uncertainties"
-    | "research_notes"
-    | "likely_workstreams"
-    | "risks_or_open_concerns"
-    | "recommendations";
-  rendered_markdown: string;
-  value_text?: string;
-  value_items?: string[];
-  provenance: Array<{
-    provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-    label: string;
-    detail_json?: Record<string, unknown>;
-    source_metadata_json?: Record<string, unknown> | null;
-  }>;
+  entry_type: BriefEntryType;
+  text: string;
+  provenance_type?: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
+  label?: string;
+  detail?: Record<string, unknown>;
+  source_metadata?: Record<string, unknown>;
 }
 
 export interface IntakeSessionQuestionDirectiveDraft {
-  directive:
+  action:
     | "retain_existing"
     | "supersede_existing"
     | "satisfied_no_longer_needed"
     | "create_new";
-  prior_question_id?: string;
+  existing_question_id?: string;
   prompt?: string;
   rationale_markdown?: string;
   importance?: "high" | "medium" | "low";
-  tags?: string[];
-  carry_forward_answer?: boolean;
+  tags?: IntakeQuestionTag[];
 }
 
 export interface IntakeSessionModelDraft {
@@ -46,27 +33,40 @@ export interface IntakeSessionModelDraft {
   question_directives?: IntakeSessionQuestionDirectiveDraft[];
 }
 
+interface ParsedPromptInput {
+  branch_name: string | null;
+  configured_model: string;
+  current_brief_entries_json: Array<Record<string, unknown>>;
+  current_questions_json: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  operator_inputs_json: Record<string, unknown>;
+  phase: "initial" | "continue" | "finalize";
+  project_root: string;
+  request_text: string;
+  timeout_ms: number;
+  worktree_id: string | null;
+}
+
 export function createStubIntakeSessionClient(
-  resolver: (input: {
-    branch_name: string | null;
-    configured_model: string;
-    current_brief_markdown: string;
-    current_questions_markdown: string;
-    operator_inputs_markdown: string;
-    phase: "initial" | "continue" | "finalize";
-    project_root: string;
-    request_text: string;
-    timeout_ms: number;
-    worktree_id: string | null;
-  }) => IntakeSessionModelDraft = ({ request_text }) => defaultSessionDraft(request_text),
+  resolver: (input: ParsedPromptInput) => IntakeSessionModelDraft = ({ request_text }) =>
+    defaultSessionDraft(request_text),
 ): IntakeSessionClient {
   return {
     async generate(input) {
       const resolvedInput = readGenerateInput(input);
       const resolved = resolver(resolvedInput);
+
       return {
         output: toSessionServiceOutput(resolved),
+        provider: "openai",
+        request_log_event_id: 1001,
         resolvedModel: `${resolvedInput.configured_model}-stub`,
+        response_log_event_id: 1002,
+        usage: {
+          input_tokens: 123,
+          output_tokens: 45,
+          total_tokens: 168,
+        },
       };
     },
   };
@@ -80,12 +80,7 @@ export function createSequenceIntakeSessionClient(
   return createStubIntakeSessionClient((input) => {
     const output = outputs[index] ?? outputs[outputs.length - 1];
     index += 1;
-
-    if (!output) {
-      return defaultSessionDraft(input.request_text);
-    }
-
-    return output;
+    return output ?? defaultSessionDraft(input.request_text);
   });
 }
 
@@ -96,27 +91,17 @@ export function defaultSessionDraft(requestText: string): IntakeSessionModelDraf
     brief_entries: [
       {
         entry_type: "problem_statement",
-        rendered_markdown: request,
-        value_text: request,
-        provenance: [
-          {
-            provenance_type: "operator_provided",
-            label: "Operator request",
-            detail_json: { request_text: request },
-          },
-        ],
+        text: request,
+        provenance_type: "operator_provided",
+        label: "Operator request",
+        detail: { request_text: request },
       },
       {
         entry_type: "elevator_pitch",
-        rendered_markdown: `Clarify and shape: ${request}`,
-        value_text: `Clarify and shape: ${request}`,
-        provenance: [
-          {
-            provenance_type: "llm_inferred",
-            label: "Initial briefing synthesis",
-            detail_json: { request_text: request },
-          },
-        ],
+        text: `Clarify and shape: ${request}`,
+        provenance_type: "llm_inferred",
+        label: "Initial briefing synthesis",
+        detail: { request_text: request },
       },
     ],
     question_directives: [],
@@ -126,28 +111,20 @@ export function defaultSessionDraft(requestText: string): IntakeSessionModelDraf
 function readGenerateInput(input: {
   configuredModel: string;
   lane: string;
+  metadata: Record<string, unknown>;
   prompt: string;
   projectRoot: string;
   timeoutMs: number;
-}): {
-  branch_name: string | null;
-  configured_model: string;
-  current_brief_markdown: string;
-  current_questions_markdown: string;
-  operator_inputs_markdown: string;
-  phase: "initial" | "continue" | "finalize";
-  project_root: string;
-  request_text: string;
-  timeout_ms: number;
-  worktree_id: string | null;
-} {
+}): ParsedPromptInput {
   const prompt = input.prompt;
+
   return {
     branch_name: readPromptField(prompt, "Branch"),
     configured_model: input.configuredModel,
-    current_brief_markdown: readPromptBlock(prompt, "Existing brief entries"),
-    current_questions_markdown: readPromptBlock(prompt, "Existing questions"),
-    operator_inputs_markdown: readPromptBlock(prompt, "Operator answers and notes"),
+    current_brief_entries_json: readJsonBlock(prompt, "Existing brief entries"),
+    current_questions_json: readJsonBlock(prompt, "Existing questions"),
+    metadata: input.metadata,
+    operator_inputs_json: readJsonObject(prompt, "Operator answers and notes"),
     phase: (readPromptField(prompt, "Turn kind") ?? "initial") as
       | "initial"
       | "continue"
@@ -159,109 +136,25 @@ function readGenerateInput(input: {
   };
 }
 
-function toSessionServiceOutput(draft: IntakeSessionModelDraft) {
-  const output = {
-    problem_statement: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    elevator_pitch: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    desired_outcomes: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    scope_in: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    scope_out: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    constraints: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    stakeholders_or_actors: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    operating_context: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    assumptions: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    accepted_uncertainties: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    research_notes: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    likely_workstreams: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    risks_or_open_concerns: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
-    recommendations: [] as Array<{
-      text: string;
-      provenance_type: "operator_provided" | "repo_derived" | "research_derived" | "llm_inferred";
-      label: string;
-      detail: Record<string, unknown>;
-      source_metadata: Record<string, unknown>;
-    }>,
+function toSessionServiceOutput(draft: IntakeSessionModelDraft): IntakeSessionModelOutput {
+  const output: IntakeSessionModelOutput = {
+    problem_statement: [],
+    elevator_pitch: [],
+    desired_outcomes: [],
+    scope_in: [],
+    scope_out: [],
+    constraints: [],
+    stakeholders_or_actors: [],
+    operating_context: [],
+    assumptions: [],
+    accepted_uncertainties: [],
+    research_notes: [],
+    likely_workstreams: [],
+    risks_or_open_concerns: [],
+    recommendations: [],
     question_directives: (draft.question_directives ?? []).map((directive) => ({
-      action: directive.directive,
-      existing_question_id: directive.prior_question_id,
+      action: directive.action,
+      existing_question_id: directive.existing_question_id,
       prompt: directive.prompt,
       rationale_markdown: directive.rationale_markdown,
       importance: directive.importance,
@@ -271,31 +164,73 @@ function toSessionServiceOutput(draft: IntakeSessionModelDraft) {
 
   for (const entry of draft.brief_entries) {
     output[entry.entry_type].push({
-      text: entry.value_text ?? entry.rendered_markdown,
-      provenance_type: entry.provenance[0]?.provenance_type ?? "llm_inferred",
-      label: entry.provenance[0]?.label ?? "Derived brief entry",
-      detail: entry.provenance[0]?.detail_json ?? {},
-      source_metadata: entry.provenance[0]?.source_metadata_json ?? {},
+      text: entry.text,
+      provenance_type: entry.provenance_type ?? "llm_inferred",
+      label: entry.label ?? "Session synthesis",
+      detail: entry.detail ?? {},
+      source_metadata: entry.source_metadata ?? {},
     });
   }
 
   return output;
 }
 
+function readJsonBlock(prompt: string, heading: string): Array<Record<string, unknown>> {
+  const block = readPromptBlock(prompt, heading);
+
+  if (!block.trim()) {
+    return [];
+  }
+
+  return JSON.parse(block) as Array<Record<string, unknown>>;
+}
+
+function readJsonObject(prompt: string, heading: string): Record<string, unknown> {
+  const block = readPromptBlock(prompt, heading);
+
+  if (!block.trim()) {
+    return {};
+  }
+
+  return JSON.parse(block) as Record<string, unknown>;
+}
+
 function readPromptField(prompt: string, label: string): string | null {
-  const match = new RegExp(`^${escapeRegExp(label)}: (.*)$`, "m").exec(prompt);
+  const match = new RegExp(`^${escapeRegex(label)}: (.*)$`, "m").exec(prompt);
   const value = match?.[1]?.trim();
-  return value && value !== "-" && value !== "(unavailable)" ? value : null;
+  return value && !value.startsWith("(") ? value : null;
 }
 
-function readPromptBlock(prompt: string, label: string): string {
-  const match = new RegExp(
-    `${escapeRegExp(label)}:\\n([\\s\\S]*?)(?=\\n[A-Z][^\\n]*:\\n|$)`,
-  ).exec(prompt);
+function readPromptBlock(prompt: string, heading: string): string {
+  const headings = [
+    "Turn kind",
+    "Project root",
+    "Branch",
+    "Worktree",
+    "Scope fallback mode",
+    "Raw request",
+    "Existing brief entries",
+    "Existing questions",
+    "Operator answers and notes",
+  ];
+  const marker = `${heading}:\n`;
+  const start = prompt.indexOf(marker);
 
-  return match?.[1]?.trim() ?? "";
+  if (start === -1) {
+    return "";
+  }
+
+  const contentStart = start + marker.length;
+  const nextMarkers = headings
+    .filter((candidate) => candidate !== heading)
+    .map((candidate) => prompt.indexOf(`\n${candidate}:\n`, contentStart))
+    .filter((index) => index !== -1);
+  const contentEnd =
+    nextMarkers.length > 0 ? Math.min(...nextMarkers) : prompt.length;
+
+  return prompt.slice(contentStart, contentEnd).trim();
 }
 
-function escapeRegExp(value: string): string {
+function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

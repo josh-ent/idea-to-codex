@@ -1,4 +1,9 @@
-import type { StructuredErrorPayload } from "./contract.js";
+export interface StructuredErrorPayload {
+  message: string;
+  error_code: string;
+  retryable: boolean;
+  details?: Record<string, unknown>;
+}
 
 export const intakeErrorStatuses = {
   active_project_missing: 409,

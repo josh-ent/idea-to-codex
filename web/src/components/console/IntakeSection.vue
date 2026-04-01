@@ -47,6 +47,22 @@ function formatQuestionStatus(value: string): string {
 function formatQuestionId(questionId: string): string {
   return questionId.length > 12 ? questionId.slice(0, 12) : questionId;
 }
+
+function formatProvenanceType(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
+function formatProvenanceDetail(value: Record<string, unknown>): string {
+  const entries = Object.entries(value).filter(([, entry]) => entry !== null && entry !== "");
+
+  if (entries.length === 0) {
+    return "";
+  }
+
+  return entries
+    .map(([key, entry]) => `${key}: ${typeof entry === "string" ? entry : JSON.stringify(entry)}`)
+    .join(" | ");
+}
 </script>
 
 <template>
@@ -90,7 +106,7 @@ function formatQuestionId(questionId: string): string {
               class="control__textarea"
               rows="4"
               placeholder="Add notes for the next intake turn."
-              :disabled="!store.intakeSession"
+              :disabled="!store.canEditIntakeNotes"
             />
           </label>
 
@@ -101,7 +117,7 @@ function formatQuestionId(questionId: string): string {
               class="control__textarea"
               rows="3"
               placeholder="Optional note for finalising the intake brief."
-              :disabled="!store.intakeSession"
+              :disabled="!store.canEditIntakeNotes"
             />
           </label>
 
@@ -144,9 +160,12 @@ function formatQuestionId(questionId: string): string {
           <small v-if="!store.intakeSession">
             Once started, the session owns the brief and questions for this project scope.
           </small>
+          <small v-else-if="store.isIntakeSessionActive">
+            Finalising stays available while the session is active. Unanswered questions may be
+            closed by finalization as accepted without answer.
+          </small>
           <small v-else>
-            Finalising is always available. Unanswered questions can remain open and will be
-            captured as accepted uncertainty.
+            This session is terminal. Start a new intake session in this scope to continue briefing.
           </small>
         </article>
 
@@ -169,10 +188,6 @@ function formatQuestionId(questionId: string): string {
                 {{ store.intakeSession.session.scope_fallback_mode.replace(/_/g, " ") }}
               </li>
             </ul>
-
-            <small v-if="!store.intakeSessionsEnabled">
-              Intake sessions are disabled in this environment.
-            </small>
           </template>
 
           <div v-else class="empty-state">
@@ -210,10 +225,27 @@ function formatQuestionId(questionId: string): string {
             <div class="record-list record-list--compact">
               <article v-for="entry in section.entries" :key="entry.id" class="record-card record-card--compact">
                 <p class="content-lines">{{ entry.rendered_markdown }}</p>
-                <small v-if="entry.provenance_summary" class="content-meta">
-                  Provenance: {{ entry.provenance_summary }}
+                <div class="record-card__meta">
+                  <Tag
+                    v-for="provenance in entry.provenance_entries"
+                    :key="`${entry.id}-${provenance.provenance_type}-${provenance.label}`"
+                    :value="formatProvenanceType(provenance.provenance_type)"
+                    severity="secondary"
+                  />
+                </div>
+                <small
+                  v-for="provenance in entry.provenance_entries"
+                  :key="`${entry.id}-${provenance.label}-detail`"
+                  class="content-meta"
+                >
+                  {{ provenance.label }}
+                  <span v-if="formatProvenanceDetail(provenance.detail)">
+                    · {{ formatProvenanceDetail(provenance.detail) }}
+                  </span>
                 </small>
-                <small v-else class="content-meta">Provenance: derived from the intake turn</small>
+                <small v-if="entry.provenance_summary" class="content-meta">
+                  Summary: {{ entry.provenance_summary }}
+                </small>
               </article>
             </div>
           </article>
@@ -240,7 +272,7 @@ function formatQuestionId(questionId: string): string {
             class="record-card"
           >
             <div class="record-card__header">
-              <h3>Question {{ index + 1 }}</h3>
+              <h3>{{ question.display_id || `Question ${index + 1}` }}</h3>
               <Tag :value="formatQuestionStatus(question.status)" severity="warn" />
             </div>
 
@@ -255,6 +287,12 @@ function formatQuestionId(questionId: string): string {
                 :value="tag"
                 severity="secondary"
               />
+              <Tag
+                v-for="provenance in question.provenance_entries"
+                :key="`${question.id}-${provenance.provenance_type}-${provenance.label}`"
+                :value="formatProvenanceType(provenance.provenance_type)"
+                severity="secondary"
+              />
             </div>
 
             <label class="control control--wide">
@@ -264,12 +302,23 @@ function formatQuestionId(questionId: string): string {
                 class="control__textarea"
                 rows="3"
                 placeholder="Answer this question if it matters for the final brief."
+                :disabled="!store.canEditIntakeQuestionAnswers"
                 @input="store.setIntakeQuestionAnswerFromEvent(question.id, $event)"
               />
             </label>
 
             <small class="content-meta">
               Stable id: {{ formatQuestionId(question.id) }}
+            </small>
+            <small
+              v-for="provenance in question.provenance_entries"
+              :key="`${question.id}-${provenance.label}-detail`"
+              class="content-meta"
+            >
+              {{ provenance.label }}
+              <span v-if="formatProvenanceDetail(provenance.detail)">
+                · {{ formatProvenanceDetail(provenance.detail) }}
+              </span>
             </small>
             <small
               v-if="questionLineageByQuestionId.get(question.id)"

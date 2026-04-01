@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { intakeSessionOutputResponseFormatName } from "./session-contract.js";
+
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 export interface IntakeSessionPromptAssets {
@@ -57,19 +59,13 @@ export function renderIntakeSessionPrompt(input: {
 }
 
 async function readAssets(): Promise<IntakeSessionPromptAssets> {
-  const [system_instructions, user_template, outputSchema] = await Promise.all([
+  const [system_instructions, user_template] = await Promise.all([
     readText("system.md"),
     readText("user.md"),
-    readText("output-schema.json"),
   ]);
-  const parsed = JSON.parse(outputSchema) as { response_format_name?: unknown };
-
-  if (typeof parsed.response_format_name !== "string" || !parsed.response_format_name.trim()) {
-    throw new Error("prompts/intake/session/output-schema.json must define response_format_name.");
-  }
 
   return {
-    response_format_name: parsed.response_format_name.trim(),
+    response_format_name: intakeSessionOutputResponseFormatName,
     system_instructions,
     user_template,
   };

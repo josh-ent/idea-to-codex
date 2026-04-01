@@ -279,7 +279,7 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   async function loadActiveIntakeSession(options: { clearError?: boolean } = {}) {
-    if (!status.value?.project.active_project || intakeSessionsEnabled.value === false) {
+    if (!status.value?.project.active_project) {
       resetIntakeState();
       return;
     }
@@ -313,11 +313,6 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
-    if (intakeSessionsEnabled.value === false) {
-      lastError.value = "Intake sessions are not available in this environment.";
-      return;
-    }
-
     await runTask(isStartingIntakeSession, "intake session start failed", async () => {
       const session = await postJson<IntakeSessionPayload>("/api/intake/sessions", {
         request_text: requestText,
@@ -335,11 +330,6 @@ export const useConsoleStore = defineStore("console", () => {
 
     if (!session) {
       lastError.value = "Start an intake session before continuing it.";
-      return;
-    }
-
-    if (intakeSessionsEnabled.value === false) {
-      lastError.value = "Intake sessions are not available in this environment.";
       return;
     }
 
@@ -367,11 +357,6 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
-    if (intakeSessionsEnabled.value === false) {
-      lastError.value = "Intake sessions are not available in this environment.";
-      return;
-    }
-
     await runTask(isFinalizingIntakeSession, "intake session finalization failed", async () => {
       const nextSession = await postJson<IntakeSessionPayload>(
         `/api/intake/sessions/${session.session.id}/finalize`,
@@ -392,11 +377,6 @@ export const useConsoleStore = defineStore("console", () => {
 
     if (!session) {
       lastError.value = "Start an intake session before abandoning it.";
-      return;
-    }
-
-    if (intakeSessionsEnabled.value === false) {
-      lastError.value = "Intake sessions are not available in this environment.";
       return;
     }
 
@@ -594,9 +574,6 @@ export const useConsoleStore = defineStore("console", () => {
     }),
   );
 
-  const intakeSessionsEnabled = computed(
-    () => status.value?.feature_flags.intake_sessions_v1 !== false,
-  );
   const activeIntakeSession = computed(() => intakeSession.value?.session ?? null);
   const currentIntakeBrief = computed(() => intakeSession.value?.current_brief ?? null);
   const currentIntakeBriefEntries = computed(() => intakeSession.value?.current_brief_entries ?? []);
@@ -604,20 +581,37 @@ export const useConsoleStore = defineStore("console", () => {
   const currentIntakeQuestionLineage = computed(
     () => intakeSession.value?.question_lineage_summary ?? [],
   );
+  const isIntakeSessionActive = computed(
+    () => intakeSession.value?.session.status === "active",
+  );
+  const canEditIntakeQuestionAnswers = computed(() => isIntakeSessionActive.value);
+  const canEditIntakeNotes = computed(() => isIntakeSessionActive.value);
   const canContinueIntakeSession = computed(
-    () => Boolean(intakeSession.value) && !isContinuingIntakeSession.value,
+    () =>
+      isIntakeSessionActive.value &&
+      !isContinuingIntakeSession.value &&
+      !isFinalizingIntakeSession.value &&
+      !isAbandoningIntakeSession.value,
   );
   const canFinalizeIntakeSession = computed(
-    () => Boolean(intakeSession.value) && !isFinalizingIntakeSession.value,
+    () =>
+      isIntakeSessionActive.value &&
+      Boolean(currentIntakeBrief.value) &&
+      !isContinuingIntakeSession.value &&
+      !isFinalizingIntakeSession.value &&
+      !isAbandoningIntakeSession.value,
   );
   const canAbandonIntakeSession = computed(
-    () => Boolean(intakeSession.value) && !isAbandoningIntakeSession.value,
+    () =>
+      isIntakeSessionActive.value &&
+      !isContinuingIntakeSession.value &&
+      !isFinalizingIntakeSession.value &&
+      !isAbandoningIntakeSession.value,
   );
   const canStartIntakeSession = computed(
     () =>
       !intakeSession.value &&
       !isStartingIntakeSession.value &&
-      intakeSessionsEnabled.value &&
       Boolean(intakeRequest.value.trim()),
   );
 
@@ -700,10 +694,6 @@ export const useConsoleStore = defineStore("console", () => {
       return "Open the active intake session instead of starting a new one.";
     }
 
-    if (lastErrorCode.value.startsWith("analysis_")) {
-      return "Use the existing proposal workflow or refresh the intake session.";
-    }
-
     if (lastErrorRetryable.value) {
       return "You can retry this action.";
     }
@@ -741,12 +731,14 @@ export const useConsoleStore = defineStore("console", () => {
     intakeFinalizeNote,
     intakeSession,
     intakeQuestionAnswers,
-    intakeSessionsEnabled,
     activeIntakeSession,
     currentIntakeBrief,
     currentIntakeBriefEntries,
     currentIntakeQuestions,
     currentIntakeQuestionLineage,
+    isIntakeSessionActive,
+    canEditIntakeQuestionAnswers,
+    canEditIntakeNotes,
     canStartIntakeSession,
     canContinueIntakeSession,
     canFinalizeIntakeSession,

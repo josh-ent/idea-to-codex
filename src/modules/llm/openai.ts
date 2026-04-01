@@ -9,6 +9,7 @@ export interface OpenAIStructuredTextRequest {
   configuredModel: string;
   instructions: string;
   lane: string;
+  metadata?: Record<string, unknown>;
   prompt: string;
   responseFormat: unknown;
   timeoutMs: number;
@@ -18,6 +19,13 @@ export interface OpenAIStructuredTextResult<Parsed> {
   parsed: Parsed | null;
   refusal: string | null;
   resolvedModel: string | null;
+  requestLogEventId: number | null;
+  responseLogEventId: number | null;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  } | null;
 }
 
 const logger = createLogger("llm.openai");
@@ -31,23 +39,24 @@ export async function parseStructuredTextWithOpenAI<Parsed>(
     apiKey: request.apiKey,
   });
 
-  const requestEvent = logger.info("responses.parse request", {
-    canonical_project_root: request.canonicalProjectRoot,
-    configured_model: request.configuredModel,
-    lane: request.lane,
+    const requestEvent = logger.info("responses.parse request", {
+      canonical_project_root: request.canonicalProjectRoot,
+      configured_model: request.configuredModel,
+      lane: request.lane,
     llm_direction: "request",
     llm_operation: "responses.parse",
     llm_provider: openAiProvider,
-    request_body: sanitizeForLog({
-      input: request.prompt,
-      instructions: request.instructions,
-      model: request.configuredModel,
-      text: {
-        format: request.responseFormat,
-      },
-    }),
-    timeout_ms: request.timeoutMs,
-  });
+      request_body: sanitizeForLog({
+        input: request.prompt,
+        instructions: request.instructions,
+        model: request.configuredModel,
+        text: {
+          format: request.responseFormat,
+        },
+      }),
+      request_metadata: sanitizeForLog(request.metadata ?? {}),
+      timeout_ms: request.timeoutMs,
+    });
 
   try {
     const response = await client.responses.parse(
@@ -73,6 +82,7 @@ export async function parseStructuredTextWithOpenAI<Parsed>(
       llm_operation: "responses.parse",
       llm_provider: openAiProvider,
       request_log_event_id: requestEvent?.id,
+      request_metadata: sanitizeForLog(request.metadata ?? {}),
       resolved_model: typeof response.model === "string" ? response.model : null,
       response_body: sanitizeForLog(response),
       usage,
@@ -85,6 +95,7 @@ export async function parseStructuredTextWithOpenAI<Parsed>(
         input_tokens: usage.input_tokens,
         lane: request.lane,
         metadata: {
+          ...normalizeUsageMetadata(request.metadata),
           usage,
         },
         operation: "responses.parse",
@@ -102,6 +113,9 @@ export async function parseStructuredTextWithOpenAI<Parsed>(
       parsed: (response.output_parsed as Parsed | null) ?? null,
       refusal: extractRefusal(response.output),
       resolvedModel: typeof response.model === "string" ? response.model : null,
+      requestLogEventId: requestEvent?.id ?? null,
+      responseLogEventId: responseEvent?.id ?? null,
+      usage,
     };
   } catch (error) {
     logger.error("responses.parse failed", {
@@ -114,6 +128,7 @@ export async function parseStructuredTextWithOpenAI<Parsed>(
       llm_operation: "responses.parse",
       llm_provider: openAiProvider,
       request_log_event_id: requestEvent?.id,
+      request_metadata: sanitizeForLog(request.metadata ?? {}),
       timeout_ms: request.timeoutMs,
     });
     throw error;
@@ -239,4 +254,16 @@ function sanitizeForLog(value: unknown, seen = new WeakSet<object>()): unknown {
   }
 
   return String(value);
+}
+
+function normalizeUsageMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!metadata) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== undefined),
+  );
 }
