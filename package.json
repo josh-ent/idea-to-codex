@@ -19,8 +19,6 @@
     "package:execution": "tsx src/cli.ts package execution",
     "package:refresh": "tsx src/cli.ts package:refresh",
     "review": "tsx src/cli.ts review",
-    "intake:analyze": "tsx src/cli.ts intake:analyze",
-    "proposal:intake": "tsx src/cli.ts proposal:intake",
     "proposal:review": "tsx src/cli.ts proposal:review",
     "proposal:approve": "tsx src/cli.ts proposal:approve",
     "proposal:reject": "tsx src/cli.ts proposal:reject",

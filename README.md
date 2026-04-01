@@ -46,8 +46,6 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 - `npm run package:execution -- <TRANCHE_ID>` generates an execution package snapshot.
 - `npm run package:refresh -- <TRANCHE_ID>` regenerates and persists the plan and execution package set for a tranche.
 - `npm run review -- <TRANCHE_ID>` generates a persisted review checkpoint.
-- `npm run intake:analyze -- "<request>"` prints the legacy deterministic intake analysis contract used by the old CLI-only proposal path.
-- `npm run proposal:intake -- "<request>"` generates a persisted proposal set from the legacy deterministic intake path.
 - `npm run proposal:review -- <TRANCHE_ID>` generates a persisted proposal set from review findings.
 - `npm run proposal:approve -- <PROPOSAL_ID>` approves one proposal draft and writes its target artefact.
 - `npm run proposal:reject -- <PROPOSAL_ID>` rejects one proposal draft without mutating its target artefact.
@@ -74,7 +72,7 @@ The current implementation focus is the first thin vertical slice from [PLAN.md]
 ## Intake sessions
 
 - The operator console now runs intake as an iterative, model-backed `Intake Session`.
-- Intake session prompt assets live under `prompts/intake/session/` so the system prompt, prompt template, and structured output shape are inspectable without digging through backend code.
+- Intake session prompt assets live under `prompts/intake/session/`; the backend-owned schema and contracts in `src/modules/intake/session-contract.ts` remain the authoritative output definition.
 - The hosted ChatGPT/OpenAI lane synthesizes the brief and proposes question reconciliation directives; the backend remains authoritative for session lifecycle, question identity, answer carry-forward, lineage, persistence, and concurrency handling.
 - The durable output of intake is a structured `Intake Brief`, not a proposal draft and not repository truth.
 - `Provenance Entry` records remain the authoritative source for why a brief entry or question version exists; UI provenance summaries are derived from those records.

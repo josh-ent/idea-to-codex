@@ -4,13 +4,14 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { analyzeRequest } from "../src/modules/intake/service.js";
 import {
+  buildProposalDraftRecord,
+  buildProposalSetRecord,
+  buildTrancheRecord,
   createFixtureRepo,
   seedValidRepository,
   type FixtureRepo,
 } from "./helpers/repo-fixture.js";
-import { createStubIntakeClient } from "./helpers/intake-stub.js";
 
 const execFileAsync = promisify(execFile);
 const projectRoot = process.cwd();
@@ -26,15 +27,6 @@ afterEach(async () => {
 function track(repo: FixtureRepo): FixtureRepo {
   repos.push(repo);
   return repo;
-}
-
-async function writeStubAnalysis(repo: FixtureRepo, requestText: string): Promise<string> {
-  const analysis = await analyzeRequest(repo.rootDir, requestText, {
-    client: createStubIntakeClient(),
-  });
-  const relativePath = "tmp/intake-analysis.json";
-  await repo.write(relativePath, JSON.stringify(analysis, null, 2));
-  return relativePath;
 }
 
 async function runCli(
@@ -141,22 +133,6 @@ describe("cli commands", () => {
     expect(result.stderr).toContain("Unknown tranche: TRANCHE-999");
   });
 
-  it("prints JSON for intake proposal generation", async () => {
-    const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const analysisPath = await writeStubAnalysis(repo, "Tidy the current fixture output.");
-
-    const result = await runCli(repo.rootDir, [
-      "proposal:intake",
-      "Tidy the current fixture output.",
-      `--analysis-file=${analysisPath}`,
-    ]);
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('"source_type": "intake"');
-    expect(result.stdout).toContain('"record"');
-  });
-
   it("prints JSON for review proposal generation", async () => {
     const repo = track(await createFixtureRepo());
     await seedValidRepository(repo);
@@ -170,29 +146,35 @@ describe("cli commands", () => {
 
   it("approves and rejects proposals from the cli", async () => {
     const repo = track(await createFixtureRepo());
-    await seedValidRepository(repo);
-    const analysisPath = await writeStubAnalysis(repo, "Tidy the current fixture output.");
+    await seedValidRepository(repo, {
+      proposals: [
+        {
+          path: "docs/proposals/PROPOSAL-001/SET.md",
+          content: buildProposalSetRecord(),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/backlog.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-BACKLOG",
+            proposalSetId: "PROPOSAL-001",
+            targetArtifact: "BACKLOG.md",
+            proposedContent: "# Backlog\n\n- [ ] Reviewed change.\n",
+          }),
+        },
+        {
+          path: "docs/proposals/PROPOSAL-001/assumptions.md",
+          content: buildProposalDraftRecord({
+            id: "PROPOSAL-001-ASSUMPTIONS",
+            proposalSetId: "PROPOSAL-001",
+            targetArtifact: "ASSUMPTIONS.md",
+            proposedContent: "# Assumptions\n\n## Active assumptions\n\n- `A-001`: Fixture assumption one.\n",
+          }),
+        },
+      ],
+    });
 
-    const createResult = await runCli(repo.rootDir, [
-      "proposal:intake",
-      "Tidy the current fixture output.",
-      `--analysis-file=${analysisPath}`,
-    ]);
-    const created = JSON.parse(createResult.stdout) as {
-      drafts: Array<{ id: string; record: { target_artifact: string } }>;
-    };
-    const backlogDraft = created.drafts.find(
-      (draft) => draft.record.target_artifact === "BACKLOG.md",
-    );
-    const trancheDraft = created.drafts.find((draft) =>
-      draft.record.target_artifact.startsWith("docs/tranches/"),
-    );
-
-    expect(backlogDraft).toBeDefined();
-    expect(trancheDraft).toBeDefined();
-
-    const approveResult = await runCli(repo.rootDir, ["proposal:approve", backlogDraft!.id]);
-    const rejectResult = await runCli(repo.rootDir, ["proposal:reject", trancheDraft!.id]);
+    const approveResult = await runCli(repo.rootDir, ["proposal:approve", "PROPOSAL-001-BACKLOG"]);
+    const rejectResult = await runCli(repo.rootDir, ["proposal:reject", "PROPOSAL-001-ASSUMPTIONS"]);
 
     expect(approveResult.code).toBe(0);
     expect(approveResult.stdout).toContain('"status": "approved"');

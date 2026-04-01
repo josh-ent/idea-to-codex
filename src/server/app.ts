@@ -33,11 +33,6 @@ import {
   removeLogEvents,
 } from "../modules/logs/service.js";
 import {
-  analyzeRequest,
-  type IntakeAnalysisClient,
-} from "../modules/intake/service.js";
-import type { IntakeAnalysis } from "../modules/intake/contract.js";
-import {
   abandonIntakeSession,
   continueIntakeSession,
   finalizeIntakeSession,
@@ -57,7 +52,6 @@ import {
 } from "../modules/projects/service.js";
 import {
   approveProposalDraft,
-  generateIntakeProposalSet,
   generateReviewProposalSet,
   getProposalSet,
   listProposalSets,
@@ -67,7 +61,6 @@ import {
 const logger = createLogger("server");
 
 export interface ServerAppOptions extends ProjectServiceOptions {
-  intakeClient?: IntakeAnalysisClient;
   intakeSessionClient?: IntakeSessionClient;
 }
 
@@ -289,129 +282,121 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     }
   });
 
-  if (featureFlags.intake_sessions_v1) {
-    app.get("/api/intake/active", async (_request, response, next) => {
-      try {
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-        response.status(200).json(await getActiveIntakeSession(projectRoot));
-      } catch (error) {
-        next(error);
-      }
-    });
+  app.get("/api/intake/active", async (_request, response, next) => {
+    try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(
+        await getActiveIntakeSession(projectRoot, { stateDir: options.stateDir }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    app.post("/api/intake/sessions", async (request, response, next) => {
-      try {
-        const requestText =
-          typeof request.body?.request_text === "string" ? request.body.request_text : "";
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+  app.post("/api/intake/sessions", async (request, response, next) => {
+    try {
+      const requestText =
+        typeof request.body?.request_text === "string" ? request.body.request_text : "";
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
 
         response.status(201).json(
           await startIntakeSession(projectRoot, requestText, {
             client: options.intakeSessionClient,
+            stateDir: options.stateDir,
           }),
         );
-      } catch (error) {
-        next(error);
-      }
-    });
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    app.get("/api/intake/sessions/:sessionId", async (request, response, next) => {
-      try {
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-        response.status(200).json(await getIntakeSession(projectRoot, request.params.sessionId));
-      } catch (error) {
-        next(error);
-      }
-    });
+  app.get("/api/intake/sessions/:sessionId", async (request, response, next) => {
+    try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      response.status(200).json(
+        await getIntakeSession(projectRoot, request.params.sessionId, {
+          stateDir: options.stateDir,
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    app.post("/api/intake/sessions/:sessionId/continue", async (request, response, next) => {
-      try {
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-        const answers =
-          request.body?.question_answers && typeof request.body.question_answers === "object"
-            ? Object.fromEntries(
-                Object.entries(request.body.question_answers).filter(
-                  ([key, value]) => typeof key === "string" && typeof value === "string",
-                ),
-              )
-            : {};
-        const expectedRevision = Number(request.body?.expected_session_revision);
-        const operatorNotes =
-          typeof request.body?.operator_notes === "string" ? request.body.operator_notes : "";
+  app.post("/api/intake/sessions/:sessionId/continue", async (request, response, next) => {
+    try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      const answers =
+        request.body?.question_answers && typeof request.body.question_answers === "object"
+          ? Object.fromEntries(
+              Object.entries(request.body.question_answers).filter(
+                ([key, value]) => typeof key === "string" && typeof value === "string",
+              ),
+            )
+          : {};
+      const expectedRevision = Number(request.body?.expected_session_revision);
+      const operatorNotes =
+        typeof request.body?.operator_notes === "string" ? request.body.operator_notes : "";
 
-        response.status(200).json(
-          await continueIntakeSession(
-            projectRoot,
-            request.params.sessionId,
-            Number.isFinite(expectedRevision) ? expectedRevision : 0,
-            answers as Record<string, string>,
-            operatorNotes,
-            {
-              client: options.intakeSessionClient,
-            },
-          ),
-        );
-      } catch (error) {
-        next(error);
-      }
-    });
+      response.status(200).json(
+        await continueIntakeSession(
+          projectRoot,
+          request.params.sessionId,
+          Number.isFinite(expectedRevision) ? expectedRevision : 0,
+          answers as Record<string, string>,
+          operatorNotes,
+          {
+            client: options.intakeSessionClient,
+            stateDir: options.stateDir,
+          },
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    app.post("/api/intake/sessions/:sessionId/finalize", async (request, response, next) => {
-      try {
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-        const expectedRevision = Number(request.body?.expected_session_revision);
-        const finalizeNote =
-          typeof request.body?.finalize_note === "string" ? request.body.finalize_note : "";
+  app.post("/api/intake/sessions/:sessionId/finalize", async (request, response, next) => {
+    try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      const expectedRevision = Number(request.body?.expected_session_revision);
+      const finalizeNote =
+        typeof request.body?.finalize_note === "string" ? request.body.finalize_note : "";
 
-        response.status(200).json(
-          await finalizeIntakeSession(
-            projectRoot,
-            request.params.sessionId,
-            Number.isFinite(expectedRevision) ? expectedRevision : 0,
-            finalizeNote,
-            {
-              client: options.intakeSessionClient,
-            },
-          ),
-        );
-      } catch (error) {
-        next(error);
-      }
-    });
+      response.status(200).json(
+        await finalizeIntakeSession(
+          projectRoot,
+          request.params.sessionId,
+          Number.isFinite(expectedRevision) ? expectedRevision : 0,
+          finalizeNote,
+          {
+            client: options.intakeSessionClient,
+            stateDir: options.stateDir,
+          },
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
 
-    app.post("/api/intake/sessions/:sessionId/abandon", async (request, response, next) => {
-      try {
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-        const expectedRevision = Number(request.body?.expected_session_revision);
+  app.post("/api/intake/sessions/:sessionId/abandon", async (request, response, next) => {
+    try {
+      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
+      const expectedRevision = Number(request.body?.expected_session_revision);
 
-        response.status(200).json(
+      response.status(200).json(
           await abandonIntakeSession(
             projectRoot,
             request.params.sessionId,
             Number.isFinite(expectedRevision) ? expectedRevision : 0,
+            { stateDir: options.stateDir },
           ),
         );
-      } catch (error) {
-        next(error);
-      }
-    });
-  } else {
-    app.post("/api/intake/analyze", async (request, response, next) => {
-      try {
-        const requestText =
-          typeof request.body?.request === "string" ? request.body.request : "";
-        const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-
-        response.status(200).json(
-          await analyzeRequest(projectRoot, requestText, {
-            client: options.intakeClient,
-          }),
-        );
-      } catch (error) {
-        next(error);
-      }
-    });
-  }
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/logs/events", (request, response, next) => {
     try {
@@ -497,43 +482,6 @@ export function createApp(studioRoot: string, options: ServerAppOptions = {}) {
     try {
       const projectRoot = await requireActiveProjectRoot(studioRoot, options);
       response.status(200).json(await getProposalSet(projectRoot, request.params.proposalSetId));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/proposals/intake", async (request, response, next) => {
-    if (featureFlags.intake_sessions_v1) {
-      response.status(409).json({
-        error_code: "proposal_intake_sessions_unavailable",
-        message: "Proposal generation from intake sessions is not available until the proposal redesign tranche lands.",
-        retryable: false,
-      });
-      return;
-    }
-
-    try {
-      const requestText =
-        typeof request.body?.request === "string" ? request.body.request : "";
-      const answers =
-        request.body?.answers && typeof request.body.answers === "object"
-          ? Object.fromEntries(
-              Object.entries(request.body.answers).filter(
-                ([key, value]) => typeof key === "string" && typeof value === "string",
-              ),
-            )
-          : {};
-      const analysis = isObjectRecord(request.body?.analysis)
-        ? (request.body.analysis as IntakeAnalysis)
-        : undefined;
-
-      const projectRoot = await requireActiveProjectRoot(studioRoot, options);
-      response.status(201).json(
-        await generateIntakeProposalSet(projectRoot, requestText, answers as Record<string, string>, {
-          analysis,
-          client: options.intakeClient,
-        }),
-      );
     } catch (error) {
       next(error);
     }
@@ -633,10 +581,6 @@ async function requireActiveProjectRoot(
   }
 
   return workspace.active_project.path;
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function emptyRepositoryValidation(): RepositoryValidation {

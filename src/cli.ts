@@ -8,13 +8,9 @@ import { generateReview } from "./modules/governance/review.js";
 import { generatePackage, refreshPackageSet } from "./modules/packaging/service.js";
 import {
   approveProposalDraft,
-  generateIntakeProposalSet,
   generateReviewProposalSet,
   rejectProposalDraft,
 } from "./modules/proposals/service.js";
-import fs from "node:fs/promises";
-import { resolveIntakeAnalysis } from "./modules/intake/service.js";
-import type { IntakeAnalysis } from "./modules/intake/contract.js";
 
 async function main() {
   initializeLogging();
@@ -82,27 +78,6 @@ async function main() {
     return;
   }
 
-  if (command === "intake:analyze") {
-    const [requestText = ""] = args;
-    const result = await analyzeIntakeForCli(process.cwd(), requestText);
-    console.log(JSON.stringify(result, null, 2));
-    return;
-  }
-
-  if (command === "proposal:intake") {
-    const [requestText = "", ...flags] = args;
-    const result = await generateIntakeProposalSet(
-      process.cwd(),
-      requestText,
-      parseAnswerFlags(flags),
-      {
-        analysis: await readAnalysisFlag(flags),
-      },
-    );
-    console.log(JSON.stringify(result, null, 2));
-    return;
-  }
-
   if (command === "proposal:review") {
     const [trancheId = "TRANCHE-001"] = args;
     const result = await generateReviewProposalSet(process.cwd(), trancheId);
@@ -133,7 +108,7 @@ async function main() {
   }
 
   throw new Error(
-    "usage: bootstrap | validate | package <plan|execution> [TRANCHE-ID] [--persist] | package:refresh [TRANCHE-ID] [--persist] | review [TRANCHE-ID] [--persist] | intake:analyze <request> | proposal:intake <request> [--answer=question_type:...] [--analysis-file=path] | proposal:review [TRANCHE-ID] | proposal:approve <PROPOSAL-ID> | proposal:reject <PROPOSAL-ID>",
+    "usage: bootstrap | validate | package <plan|execution> [TRANCHE-ID] [--persist] | package:refresh [TRANCHE-ID] [--persist] | review [TRANCHE-ID] [--persist] | proposal:review [TRANCHE-ID] | proposal:approve <PROPOSAL-ID> | proposal:reject <PROPOSAL-ID>",
   );
 }
 
@@ -141,40 +116,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : "unknown error");
   process.exitCode = 1;
 });
-
-function parseAnswerFlags(flags: string[]): Record<string, string> {
-  return Object.fromEntries(
-    flags
-      .filter((flag) => flag.startsWith("--answer="))
-      .map((flag) => flag.slice("--answer=".length))
-      .map((value) => {
-        const separator = value.indexOf(":");
-
-        if (separator === -1) {
-          throw new Error("usage: --answer=question_type:Your answer");
-        }
-
-        return [value.slice(0, separator), value.slice(separator + 1)];
-      }),
-  );
-}
-
-async function analyzeIntakeForCli(rootDir: string, requestText: string): Promise<IntakeAnalysis> {
-  return resolveIntakeAnalysis(rootDir, requestText);
-}
-
-async function readAnalysisFlag(flags: string[]): Promise<IntakeAnalysis | undefined> {
-  const flag = flags.find((entry) => entry.startsWith("--analysis-file="));
-
-  if (!flag) {
-    return undefined;
-  }
-
-  const filePath = flag.slice("--analysis-file=".length);
-
-  if (!filePath) {
-    throw new Error("usage: --analysis-file=/path/to/intake-analysis.json");
-  }
-
-  return JSON.parse(await fs.readFile(filePath, "utf8")) as IntakeAnalysis;
-}
